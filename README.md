@@ -111,11 +111,19 @@ Supported targets:
 
 ---
 
-## Architecture
+## Contributions
 
-For detailed system flow, memory layout, build pipeline, and component responsibilities, see [architecture.md](ARCHITECTURE.md).
+Contributions are welcome.
+
+For detailed system flow, memory layout, build pipeline, and component responsibilities, see [architecture.md](architecture.md).
 
 ---
 
-<p align="center">Copyright &copy; 2024 <a href="https://github.com/serene-brew" target="_blank">Serene Brew</a>
+## License
+
+BSD-3-Clause. See LICENSE file for details.
+
+---
+
+<p align="center">Copyright &copy; 2026 <a href="https://github.com/serene-brew" target="_blank">Serene Brew</a>
 <p align="center"><a href="https://github.com/serene-brew/Neutron/blob/main/LICENSE"><img src="https://img.shields.io/static/v1.svg?style=for-the-badge&label=License&message=BSD-3-clause&logoColor=d9e0ee&colorA=363a4f&colorB=b7bdf8"/></a></p>
