@@ -1,9 +1,12 @@
-# Neutron Bootloader
-**Parent Project**: Project Atom
+<div align=center>
+<img width="500" height="500" alt="Neutron_Logo_for_Github" src="https://github.com/user-attachments/assets/8b634af5-5973-4994-9cdc-d485141269e3" />
 
-ARMv8 AArch64 bare-metal bootloader for QEMU virt machine. Loads and transfers control to a test kernel.
+### A Piece of Project Atom
+</div>
 
 ---
+
+ARMv8 AArch64 bare-metal bootloader for QEMU virt machine. Loads and transfers control to a test kernel.
 
 ## Overview
 
@@ -110,13 +113,7 @@ Supported targets:
 
 ## Architecture
 
-For detailed system flow, memory layout, build pipeline, and component responsibilities, see [architecture.md](architecture.md).
-
----
-
-## License
-
-BSD-3-Clause. See LICENSE file for details.
+For detailed system flow, memory layout, build pipeline, and component responsibilities, see [architecture.md](ARCHITECTURE.md).
 
 ---
 
