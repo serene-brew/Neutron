@@ -115,13 +115,13 @@ Supported targets:
 
 Contributions are welcome.
 
-For detailed system flow, memory layout, build pipeline, and component responsibilities, see [architecture.md](architecture.md).
+For detailed system flow, memory layout, build pipeline, and component responsibilities, and guidelines please see:
 
----
+* [`ARCHITECTURE.md`](ARCHITECTURE.md)
+* [`CONTRIBUTING.md`](CONTRIBUTING.md)
+* [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
 
-## License
-
-BSD-3-Clause. See LICENSE file for details.
+All changes are accepted via Pull Requests.
 
 ---
 
