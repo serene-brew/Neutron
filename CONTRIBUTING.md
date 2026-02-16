@@ -92,19 +92,20 @@ Each commit message **must** follow this structure:
 
 ### Allowed Tags
 
-| Tag          | Meaning                                        |
-| ------------ | ---------------------------------------------- |
-| `[FIX]`      | Fixed a bug or issue                           |
-| `[ADD]`      | Added new files or directories                 |
-| `[FEAT]`     | Introduced a new feature                       |
-| `[DELETE]`   | Deleted files or directories                   |
-| `[REMOVED]`  | Removed an existing feature                    |
-| `[UPDATE]`   | Updated existing logic or file content         |
-| `[UPD_FEAT]` | Updated or enhanced an existing feature        |
-| `[BUILD]`    | Modified build system or build files           |
-| `[CONF]`     | Updated configuration files                    |
-| `[REFACTOR]` | Refactored code without changing behavior      |
-| `[REBASE]`   | Major restructuring or rewrite of the codebase |
+| Tag          | Meaning                                          |
+| ------------ | ------------------------------------------------ |
+| `[ADD]`      | Added new files or directories                   |
+| `[DELETE]`   | Deleted files or directories                     |
+| `[UPDATE]`   | Updated existing logic or file content           |
+| `[FIX]`      | Fixed a bug or issue                             |
+| `[FEAT]`     | Introduced a new feature                         |
+| `[REMOVED]`  | Removed an existing feature                      |
+| `[UPD_FEAT]` | Updated or enhanced an existing feature          |
+| `[BUILD]`    | Modified build system or build files             |
+| `[CONF]`     | Updated configuration files                      |
+| `[DOCS]`     | Added or updated documentation files (.md files) |
+| `[REBASE]`   | Major restructuring or rewrite of the codebase   |
+| `[REFACTOR]` | Refactored code without changing behavior        |
 
 
 ## 4. Testing
