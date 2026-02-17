@@ -1,6 +1,6 @@
 ---
 name: Feature Request
-about: Propose a kernel feature or subsystem enhancement
+about: Propose a bootloader feature or subsystem enhancement
 title: "[FEATURE] "
 labels: enhancement
 assignees: ""

@@ -1,6 +1,6 @@
 ---
 name: Bug Report
-about: Report a kernel or subsystem issue
+about: Report a bootloader or subsystem issue
 title: "[BUG] "
 labels: bug
 assignees: ""
