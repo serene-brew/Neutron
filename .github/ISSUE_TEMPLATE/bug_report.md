@@ -1,4 +1,3 @@
-
 ---
 name: Bug Report
 about: Report a kernel or subsystem issue
