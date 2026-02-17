@@ -116,8 +116,6 @@ If your change introduces new behavior:
 * Manually verify functionality using known endpoints or reproducible steps
 * Document how the change was tested in the Pull Request description
 
-Torilate currently relies on manual testing, but reproducibility is important.
-
 ## 5. Documentation
 
 If your change affects:
@@ -131,4 +129,5 @@ Please update the relevant documentation, including:
 
 * `README.md`
 * `ARCHITECTURE.md`
+
 * Inline comments where appropriate
