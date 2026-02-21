@@ -48,9 +48,24 @@ function Run-Make($Target) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
+function QEMU-Run {
+    Write-Host "Running QEMU with built SD image..."
+    if (command make ) {
+        make qemu-rpi
+    } elseif (command mingw32-make) {
+        mingw32-make qemu-rpi
+    } else {
+        Write-Error "Make command not found. Please ensure make is installed and in PATH."
+        exit 1
+    }
+
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
 Ensure-Docker
 
 switch ($Command) {
+    "docker"       { Docker-Build; Docker-Tag }
     "docker-build" { Docker-Build }
     "tag"          { Docker-Tag }
     "all"          { Run-Make "all" }
@@ -59,6 +74,7 @@ switch ($Command) {
     "sd-image"     { Run-Make "sd-image" }
     "clean"        { Run-Make "clean" }
     "size"         { Run-Make "size" }
+    "qemu"         { Run-Make "all"; QEMU-Run }
     default {
         Write-Host ""
         Write-Host "Usage:"
