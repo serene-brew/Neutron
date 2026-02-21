@@ -2,7 +2,7 @@
 <img width="500" height="500" alt="Neutron_Logo_for_Github" src="https://github.com/user-attachments/assets/8b634af5-5973-4994-9cdc-d485141269e3" />
 
 ### A Piece of Project atom
-### v1.0.0
+### v1.0.1
 </div>
 
 ---
@@ -141,95 +141,6 @@ python3 pack_kernel.py build/kernel_raw.bin -o bin/atom.bin -n "Neutron Test Ker
 ```
 
 Default load/entry in the script are **0x200000** to match the test kernel linker script. The Makefile runs this step when building the kernel target.
-
----
-
-## Build Configuration
-
-- **Toolchain:** `CROSS` defaults to `aarch64-linux-gnu-`; override with `make CROSS=aarch64-none-elf- ...`.
-- **QEMU:** `-machine raspi3b`, `-cpu cortex-a53`, `-m 1G`, `-kernel bin/kernel8.img`, `-drive file=bin/sd.img,if=sd,format=raw`, `-serial mon:stdio`, `-display none`.
-
-### Linux (and macOS)
-
-Use GNU Make and the AArch64 cross-compiler directly. From the project root:
-
-```bash
-make all        # bootloader + kernel + SD image
-make bootloader # only bin/kernel8.img
-make kernel     # only bin/atom.bin
-make sd-image   # only bin/sd.img (needs atom.bin)
-make qemu-rpi   # build all, then run QEMU
-make size       # section sizes
-make clean      # remove build/ and bin/
-```
-
-Ensure SD image tools are installed (`parted`, `mtools`, `dosfstools`) for `make sd-image` and `make all`.
-
-### Windows (Docker-based CLI)
-
-On Windows you can build and run Neutron using **`neutron.ps1`** (PowerShell). The script runs Make inside a Docker container (Ubuntu 24.04, AArch64 toolchain, `parted`, `mtools`, `dosfstools`) and can run QEMU on the host or inside the container. You do not need a native cross-compiler or SD tools on the host.
-
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or another Docker engine) and PowerShell.
-
-**Usage:** `.\neutron.ps1 <command> [options]`. The Docker image is built automatically when needed (e.g. on first `build` or `run`).
-
-**Build** (default target is `all`):
-
-```powershell
-.\neutron.ps1 build              # same as: make all
-.\neutron.ps1 build all          # bootloader + kernel + sd.img
-.\neutron.ps1 build bootloader   # only kernel8.img
-.\neutron.ps1 build kernel       # only atom.bin
-.\neutron.ps1 build sd-image    # only sd.img
-.\neutron.ps1 build clean        # remove build artefacts
-.\neutron.ps1 build size         # section sizes
-```
-
-**Run QEMU on host** (requires `qemu-system-aarch64` on PATH). Builds artefacts if missing; use `--build` to force rebuild:
-
-```powershell
-.\neutron.ps1 run
-.\neutron.ps1 run --build
-```
-
-**Run QEMU inside Docker** (no host QEMU needed). Builds artefacts if missing; use `--build` to force rebuild:
-
-```powershell
-.\neutron.ps1 emu
-.\neutron.ps1 emu --build
-```
-
-**Interactive shell** in the build container:
-
-```powershell
-.\neutron.ps1 shell
-```
-
-**Docker image and custom commands:**
-
-```powershell
-.\neutron.ps1 docker build        # build image only
-.\neutron.ps1 docker tag         # tag image as latest
-.\neutron.ps1 docker bash        # same as shell
-.\neutron.ps1 docker "make clean"   # run arbitrary command in container
-```
-
-**Help:**
-
-```powershell
-.\neutron.ps1 help
-```
-
-**Summary of `neutron.ps1` commands:**
-
-| Command | Description |
-|---------|-------------|
-| `.\neutron.ps1 build` [target] | Build in Docker (default target: all). Builds image if missing. |
-| `.\neutron.ps1 run` [--build] | Run QEMU on host; build first if artefacts missing. |
-| `.\neutron.ps1 emu` [--build] | Run QEMU inside Docker; build first if artefacts missing. |
-| `.\neutron.ps1 shell` | Open interactive bash in container. |
-| `.\neutron.ps1 docker` build, tag, bash, or command | Image build/tag, shell, or run a command in container. |
-| `.\neutron.ps1 help` | Show usage and all commands. |
 
 ---
 
