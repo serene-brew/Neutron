@@ -28,7 +28,9 @@ Neutron is a minimal yet functional bootloader that:
 Designed for educational purposes, QEMU simulation (`-machine raspi3b`), and deployment on Raspberry Pi Zero 2W (or Pi 3B) with an SD card.
 
 ---
->[!NOTE] For Developer Manual and windows build support check out the following documentation: https://neutron-wiki.pages.dev/ 
+>[!NOTE]
+> For Developer Manual and windows build support check out the following documentation below <br>
+> https://neutron-wiki.pages.dev/ 
 
 ## Quick Start
 
