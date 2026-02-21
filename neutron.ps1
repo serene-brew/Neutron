@@ -1,24 +1,46 @@
 
 # =============================================================================
 # Neutron Bootloader - Project Atom
-# build.ps1  - docker build script for windows 
+# neutron.ps1  - docker build script for windows 
 # 
 # Organization : serene brew
 # Author       : TriDEntApollO
 # License      : BSD-3-Clause
 #
 # ================================================================
-
 param (
     [string]$Command = "build",
     [string]$Option
 )
 
 # ----------------------------------------------------------------
+# Load Version from VERSION file
+# ----------------------------------------------------------------
+$VersionFile = Join-Path (Get-Location) "VERSION"
+
+if (-not (Test-Path $VersionFile)) {
+    Write-Error "VERSION file not found."
+    exit 1
+}
+
+$VersionLine = Get-Content $VersionFile |
+    Where-Object { $_ -match '^VERSION:\s*' }
+
+if (-not $VersionLine) {
+    Write-Error "VERSION entry not found in VERSION file."
+    exit 1
+}
+
+# Extract value after "VERSION:"
+$Version = ($VersionLine -replace '^VERSION:\s*', '').Trim()
+# Eemove leading 'v' if you want
+$Version = $Version.TrimStart('v')
+
+# ----------------------------------------------------------------
 # Globals
 # ----------------------------------------------------------------
 $ProjectPath  = (Get-Location).Path
-$ImageVersion = "neutron-build:0.1.0"
+$ImageVersion = "neutron-build:$Version"
 $ImageLatest  = "neutron-build:latest"
 $QEMU         = "qemu-system-aarch64"
 $BIN_DIR      = Join-Path $ProjectPath "bin"
@@ -222,14 +244,7 @@ function Neutron-RunDocker($ForceBuild) {
     docker run --rm -it `
         --mount type=bind,src="$ProjectPath",dst=/Neutron `
         $ImageLatest `
-        bash -c "qemu-system-aarch64 \
-            -machine raspi3b \
-            -cpu cortex-a53 \
-            -m 1G \
-            -kernel bin/kernel8.img \
-            -drive file=bin/sd.img,if=sd,format=raw \
-            -serial mon:stdio \
-            -display none"
+        bash -c "qemu-system-aarch64 -machine raspi3b -cpu cortex-a53 -m 1G -kernel bin/kernel8.img -drive file=bin/sd.img,if=sd,format=raw -serial mon:stdio -display none"
 
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
@@ -290,6 +305,7 @@ function Show-Help {
 # Command Routing
 # ----------------------------------------------------------------
 Ensure-Docker
+Write-Host "Neutron Bootloader - Version $Version"
 
 switch ($Command) {
 
