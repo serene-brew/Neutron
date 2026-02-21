@@ -1,0 +1,345 @@
+
+# =============================================================================
+# Neutron Bootloader - Project Atom
+# build.ps1  - docker build script for windows 
+# 
+# Organization : serene brew
+# Author       : TriDEntApollO
+# License      : BSD-3-Clause
+#
+# ================================================================
+
+param (
+    [string]$Command = "build",
+    [string]$Option
+)
+
+# ----------------------------------------------------------------
+# Globals
+# ----------------------------------------------------------------
+$ProjectPath  = (Get-Location).Path
+$ImageVersion = "neutron-build:0.1.0"
+$ImageLatest  = "neutron-build:latest"
+$QEMU         = "qemu-system-aarch64"
+$BIN_DIR      = Join-Path $ProjectPath "bin"
+
+# ----------------------------------------------------------------
+# Utility: Ensure Docker Exists
+# ----------------------------------------------------------------
+function Ensure-Docker {
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        Write-Error "Docker not found in PATH."
+        exit 1
+    }
+}
+
+# ----------------------------------------------------------------
+# Docker Build / Tag
+# ----------------------------------------------------------------
+function Docker-Build {
+    Write-Host "[DOCKER] Building image: $ImageVersion"
+    docker build -t $ImageVersion .
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+function Docker-Tag {
+    Write-Host "[DOCKER] Tagging image as latest"
+    docker tag $ImageVersion $ImageLatest
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+# ----------------------------------------------------------------
+# Utility: Ensure Docker Image Exists
+# ----------------------------------------------------------------
+function Ensure-Image {
+    Write-Host "[DOCKER] Checking image: $ImageLatest"
+    $exists = docker images -q $ImageLatest
+
+    if (-not $exists) {
+        Write-Host "[DOCKER] Image not found. Building..."
+        Docker-Build
+        Docker-Tag
+        Write-Host "[DOCKER] Image built successfully."
+    }
+    else {
+        Write-Host "[DOCKER] Image found."
+    }
+
+    # Always print final image details
+    Write-Host "[DOCKER] Image id: $(docker images $ImageLatest -q)"
+}
+
+# ----------------------------------------------------------------
+# Run command inside container
+# ----------------------------------------------------------------
+function Docker-RunCmd($Cmd) {
+    Ensure-Image
+    Write-Host "[DOCKER] Executing inside container: $Cmd"
+    Write-Host ""
+    docker run --rm `
+        --mount type=bind,src="$ProjectPath",dst=/Neutron `
+        $ImageLatest `
+        bash -c "$Cmd"
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+# ----------------------------------------------------------------
+# Interactive Shell
+# ----------------------------------------------------------------
+function Neutron-Shell {
+    Ensure-Image
+    Write-Host "[DOCKER] Opening interactive shell..."
+    docker run --rm -it `
+        --mount type=bind,src="$ProjectPath",dst=/Neutron `
+        $ImageLatest `
+        bash
+}
+
+# ----------------------------------------------------------------
+# Run Docker commands
+# ----------------------------------------------------------------
+function Neutron-Docker($Option) {
+    switch ($Option) {
+        "build" {Docker-Build}
+        "tag" {Docker-Tag}
+        "bash" {Neutron-Shell}
+
+        default {
+            if ($Option) {
+                Write-Host "[DOCKER] Running custom command: $Option"
+                Docker-RunCmd $Option
+            }
+            else {
+                Write-Host ""
+                Write-Host "Docker Commands:"
+                Write-Host "  neutron docker build"
+                Write-Host "  neutron docker tag"
+                Write-Host "  neutron docker bash"
+                Write-Host "  neutron docker `"make clean`""
+                Write-Host ""
+            }
+        }
+    }
+}
+
+# ----------------------------------------------------------------
+# Build inside Docker
+# ----------------------------------------------------------------
+function Neutron-Build($Target) {
+    if (-not $Target) {
+        $Target = "all"
+    }
+
+    switch ($Target) {
+        "all"        { }
+        "bootloader" { }
+        "kernel"     { }
+        "sd-image"   { }
+        "clean"      { }
+        "size"       { }
+
+        default {
+            Write-Error "Invalid build target: '$Target'"
+            Write-Host ""
+            Write-Host "Valid build targets:"
+            Write-Host "  all (default)"
+            Write-Host "  bootloader"
+            Write-Host "  kernel"
+            Write-Host "  sd-image"
+            Write-Host "  clean"
+            Write-Host "  size"
+            exit 1
+        }
+    }
+
+    Write-Host "[BUILD] make $Target"
+    Docker-RunCmd "make $Target"
+}
+
+# ----------------------------------------------------------------
+# Check if build artifacts exist
+# ----------------------------------------------------------------
+function Build-Exists {
+    $kernel = Join-Path $BIN_DIR "kernel8.img"
+    $sdimg  = Join-Path $BIN_DIR "sd.img"
+    return (Test-Path $kernel) -and (Test-Path $sdimg)
+}
+
+# ----------------------------------------------------------------
+# Run QEMU on Host
+# ----------------------------------------------------------------
+function Neutron-RunHost($ForceBuild) {
+    if (-not (Get-Command $QEMU -ErrorAction SilentlyContinue)) {
+        Write-Error "QEMU not found in PATH."
+        exit 1
+    }
+
+    if ($ForceBuild) {
+        Write-Host "[RUN] Forced rebuild before execution..."
+        Docker-RunCmd "make all"
+    } elseif (-not (Build-Exists)) {
+        Write-Host "[RUN] No build artifacts found. Building..."
+        Docker-RunCmd "make all"
+    } else {
+        Write-Host "[RUN] Using existing build artifacts."
+    }
+
+    $SD_IMG = Join-Path $BIN_DIR "sd.img"
+    $BL_IMG = Join-Path $BIN_DIR "kernel8.img"
+
+    Write-Host "[QEMU] Launching on host..."
+
+    & $QEMU `
+        -machine raspi3b `
+        -cpu cortex-a53 `
+        -m 1G `
+        -kernel $BL_IMG `
+        -drive file=$SD_IMG,if=sd,format=raw `
+        -serial mon:stdio `
+        -display none
+
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+# ----------------------------------------------------------------
+# Run QEMU inside Docker
+# ----------------------------------------------------------------
+function Neutron-RunDocker($ForceBuild) {
+    Ensure-Image
+
+    if ($ForceBuild) {
+        Write-Host "[EMU] Forced rebuild before emulation..."
+        Docker-RunCmd "make all"
+    } elseif (-not (Build-Exists)) {
+        Write-Host "[EMU] No build artifacts found. Building..."
+        Docker-RunCmd "make all"
+    } else {
+        Write-Host "[EMU] Using existing build artifacts."
+    }
+
+    Write-Host "[EMU] Launching QEMU inside container..."
+
+    docker run --rm -it `
+        --mount type=bind,src="$ProjectPath",dst=/Neutron `
+        $ImageLatest `
+        bash -c "qemu-system-aarch64 \
+            -machine raspi3b \
+            -cpu cortex-a53 \
+            -m 1G \
+            -kernel bin/kernel8.img \
+            -drive file=bin/sd.img,if=sd,format=raw \
+            -serial mon:stdio \
+            -display none"
+
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+# ----------------------------------------------------------------
+# Help Mesage
+# ----------------------------------------------------------------
+function Show-Help {
+
+    Write-Host ""
+    Write-Host "Neutron CLI"
+    Write-Host ""
+    Write-Host "Usage:"
+    Write-Host "  neutron <command> [options]"
+    Write-Host ""
+
+    Write-Host "Build Commands:"
+    Write-Host "  build               Build inside Docker"
+    Write-Host "    all               [Default] Build all artifacts"
+    Write-Host "    bootloader        Build kernel8.img only"
+    Write-Host "    kernel            Build atom.bin only"
+    Write-Host "    sd-image          Create sd.img only"
+    Write-Host "    clean             Remove build artifacts"
+    Write-Host "    size              Show section sizes"
+    Write-Host ""
+
+    Write-Host "Run (QEMU - Host):"
+    Write-Host "  run                 Run Neutron on QEMU (host installation)"
+    Write-Host "                      builds all artifacts if not found"
+    Write-Host "  Options:"
+    Write-Host "    --build           Force rebuild before running"
+    Write-Host ""
+
+    Write-Host "Emulation (QEMU - Docker):"
+    Write-Host "  emu                 Run Neutron on QEMU inside Docker container"
+    Write-Host "                      builds all artifacts if not found"
+    Write-Host "  Options:"
+    Write-Host "    --build           Force rebuild before running"
+    Write-Host ""
+
+    Write-Host "Shell:"
+    Write-Host "  shell               Open interactive Docker shell"
+    Write-Host ""
+
+    Write-Host "Docker:"
+    Write-Host "  docker build        Build Docker image"
+    Write-Host "  docker tag          Tag image as latest"
+    Write-Host "  docker bash         Open interactive Docker shell"
+    Write-Host "  docker <command>    Run arbitrary bash command in container"
+    Write-Host ""
+
+    Write-Host "Help:"
+    Write-Host "  help                Show this message"
+    Write-Host ""
+}
+
+# ----------------------------------------------------------------
+# Command Routing
+# ----------------------------------------------------------------
+Ensure-Docker
+
+switch ($Command) {
+
+    # ============================================================
+    # BUILD
+    # ============================================================
+    "build" {
+        Neutron-Build $Option
+    }
+
+    # ============================================================
+    # RUN (Host)
+    # ============================================================
+    "run" {
+        $force = ($Option -eq "--build")
+        Neutron-RunHost $force
+    }
+
+    # ============================================================
+    # EMU (Docker QEMU)
+    # ============================================================
+    "emu" {
+        $force = ($Option -eq "--build")
+        Neutron-RunDocker $force
+    }
+
+    # ============================================================
+    # DOCKER
+    # ============================================================
+    "docker" {
+        Neutron-Docker $Option
+    }
+
+    # ============================================================
+    # SHELL
+    # ============================================================
+    "shell" {
+        Neutron-Shell
+    }
+
+    # ============================================================
+    # HELP
+    # ===========================================================
+    "help" {
+        Show-Help
+    }
+
+    default {
+        Write-Host "Unknown command: $Command"
+        Show-Help
+        exit 1
+    }
+}
