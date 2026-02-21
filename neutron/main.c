@@ -44,7 +44,7 @@ static void print_banner(void) {
 
   uart_puts(ANSI_RESET);
   uart_puts(ANSI_GREEN);
-  uart_puts("       ~ Neutron Bootloader  v1.0.0\n");
+  uart_puts("       ~ Neutron Bootloader  v1.0.1\n");
   uart_puts(ANSI_RESET);
   uart_puts(
       "------------------------------------------------------------------\n");
