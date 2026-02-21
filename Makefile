@@ -234,16 +234,6 @@ $(BUILD_DIR)/%.o: %.S
 qemu-rpi: all
 	$(QEMU) $(QEMU_FLAGS)
 
-qemu-rpi-debug: all
-	$(QEMU) $(QEMU_FLAGS) -gdb tcp::$(QEMU_GDB_PORT) -S
-
-# ----------------------------------------------------------------
-# Disassembly
-# ----------------------------------------------------------------
-disasm: $(BL_ELF) $(K_RAW_ELF)
-	@$(OBJDUMP) -d -S $(BL_ELF) > $(BUILD_DIR)/neutron.lst
-	@$(OBJDUMP) -d -S $(K_RAW_ELF) > $(BUILD_DIR)/kernel.lst
-
 # ----------------------------------------------------------------
 # Size
 # ----------------------------------------------------------------
@@ -265,4 +255,20 @@ clean:
 # Help
 # ----------------------------------------------------------------
 help:
-	@echo "make all | bootloader | kernel | sd-image | qemu-rpi | clean"
+		@echo ""
+		@echo "Neutron Bootloader - available targets:"
+		@echo ""
+		@echo "  make all              Build bootloader + kernel + sd.img (default)"
+		@echo "  make bootloader       Build kernel8.img only"
+		@echo "  make kernel           Build atom.bin only"
+		@echo "  make sd-image         Create sd.img FAT32 disk with atom.bin"
+		@echo "  make qemu-rpi         Boot in QEMU (SD card path)"
+		@echo "  make size             Section sizes for both"
+		@echo "  make clean            Remove all build artefacts"
+		@echo ""
+		@echo "  SD image tools needed:"
+		@echo "    sudo apt install parted mtools dosfstools"
+		@echo ""
+		@echo "Toolchain: CROSS=$(CROSS)"
+		@echo "  Override: make CROSS=aarch64-none-elf- all"
+		@echo ""
