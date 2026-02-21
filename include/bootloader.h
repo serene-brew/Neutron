@@ -10,51 +10,91 @@
  * - Memory addresses
  * - Bootloader information passed to kernel
  * - Function prototypes
- * ============================================================================= */
+ * =============================================================================
+ */
 
 #ifndef BOOTLOADER_H
 #define BOOTLOADER_H
 
+#include <stddef.h>
 #include <stdint.h>
 
-/* Memory Layout  ============================================================ */
-#define BOOTLOADER_BASE     0x40000000UL    /* Bootloader load address       */
-#define BOOTLOADER_SIZE     0x00200000UL    /* 2 MB max for bootloader       */
-#define KERNEL_BASE         0x40200000UL    /* Kernel load address           */
-#define DTB_BASE            0x40000000UL    /* DTB passed by firmware        */
+/* ----------------------------------------------------------------
+ * Return codes
+ * ---------------------------------------------------------------- */
+#define BL_OK 0
+#define BL_ERR_NOT_FOUND 1
+#define BL_ERR_BAD_MAGIC 2
+#define BL_ERR_TOO_LARGE 3
+#define BL_ERR_BAD_CHECKSUM 4
 
-/* Load address and size definitions ========================================= */
-#define KERNEL_IMAGE_LOAD_ADDR  0x40400000UL  /* Where firmware loads kernel (staging area) */
-#define MAX_KERNEL_SIZE         0x01000000UL  /* Max 16 MB for kernel */
+/* ----------------------------------------------------------------
+ * Kernel image header
+ *
+ *  Offset  Size  Field
+ *  ------  ----  -----
+ *   0x00     4   Magic      "NKRN"  (0x4E4B524E)
+ *   0x04     4   Version    (major<<16 | minor)
+ *   0x08     4   Load addr  physical address to copy payload to
+ *   0x0C     4   Entry addr physical address to jump to
+ *   0x10     4   Image size payload length in bytes (after header)
+ *   0x14     4   CRC32      CRC of payload bytes only
+ *   0x18    40   Name       null-terminated OS name string
+ *   0x40     -   Payload    raw binary (or ELF - see flags)
+ * ---------------------------------------------------------------- */
+#define KERNEL_MAGIC 0x4E4B524EU /* "NKRN" */
+#define KERNEL_HEADER_SIZE 0x40
 
-/* Bootloader Information Passed to Kernel ================================== */
 typedef struct {
-    uint64_t dtb_phys_addr;                 /* Physical address of DTB       */
-    uint64_t dtb_size;                      /* DTB size in bytes             */
-    uint64_t bootloader_version;            /* Version for compatibility     */
-    uint64_t bootloader_flags;              /* Feature flags                 */
-} bootloader_info_t;
+  uint32_t magic;
+  uint32_t version;
+  uint32_t load_addr;
+  uint32_t entry_addr;
+  uint32_t image_size;
+  uint32_t crc32;
+  char name[40];
+} __attribute__((packed)) kernel_header_t;
 
-/* Bootloader Information — stored at known location for kernel access      */
-extern bootloader_info_t bootloader_info;
+/* ----------------------------------------------------------------
+ * Boot info passed to the loaded kernel
+ * (placed at a well-known address so the kernel can find it)
+ * ---------------------------------------------------------------- */
+#define BOOT_INFO_ADDR 0x1000UL
 
-/* Function Prototypes ======================================================= */
+typedef struct {
+  uint32_t magic;          /* 0xB007B007               */
+  uint32_t board_revision; /* from mailbox             */
+  uint32_t arm_mem_size;   /* ARM-accessible RAM bytes */
+  uint32_t kernel_load_addr;
+  uint32_t kernel_entry_addr;
+  uint32_t kernel_size;
+  char bootloader_version[16];
+} __attribute__((packed)) boot_info_t;
 
-/* Main bootloader entry point (called from assembly)                        */
-void bootloader_main(void);
+#define BOOT_INFO_MAGIC 0xB007B007U
 
-/* Initialize bootloader info structure                                      */
-void bootloader_info_init(uint64_t dtb_addr);
+/* ----------------------------------------------------------------
+ * API
+ * ---------------------------------------------------------------- */
 
-/* Load kernel from storage/memory to KERNEL_BASE                           */
-int bootloader_load_kernel(void);
+/*
+ * bl_load_kernel()
+ *   Validate the kernel image at `src` (address where it was DMA'd
+ *   or placed in memory), copy payload to header.load_addr, fill
+ *   boot_info at BOOT_INFO_ADDR.
+ *   Returns BL_OK or an error code.
+ */
+int bl_load_kernel(uintptr_t src, boot_info_t *out_info);
 
-/* Jump to kernel at KERNEL_BASE with DTB address in x0                     */
-void bootloader_jump_to_kernel(uint64_t dtb_addr) __attribute__((noreturn));
+/*
+ * bl_boot_kernel()
+ *   Jump to entry_addr with boot_info_t * in x0.
+ *   Does NOT return.
+ */
+void __attribute__((noreturn)) bl_boot_kernel(uintptr_t entry_addr,
+                                              boot_info_t *info);
 
-/* Minimal print function for bootloader debug output                        */
-void bootloader_printf(const char *fmt, ...);
+/* CRC32 helper (IEEE 802.3 polynomial) */
+uint32_t crc32(const uint8_t *data, size_t len);
 
-/* Sleep for milliseconds (busy loop) */
-void bootloader_sleep(uint32_t milliseconds);
 #endif /* BOOTLOADER_H */
