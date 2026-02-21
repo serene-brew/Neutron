@@ -6,7 +6,10 @@
 </div>
 
 ---
+<div align=center>
 <a href="https://discord.gg/vdUtjTSQF4"><img src="https://invidget.switchblade.xyz/vdUtjTSQF4"></a>
+</div>
+
 ARMv8 AArch64 bare-metal bootloader for **Raspberry Pi Zero 2W** (and compatible boards). Runs in **QEMU** using the **raspi3b** machine, which emulates the same BCM2837-style peripherals and address map. Loads a kernel from the SD card (FAT32) and transfers control with a boot-info structure.
 
 ## Overview
