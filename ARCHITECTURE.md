@@ -4,8 +4,8 @@
 **Organization**: serene brew  
 **Author**: mintRaven-05  
 **License**: BSD-3-Clause  
-**Target**: ARMv8 AArch64 bare-metal bootloader + test kernel for QEMU  
-**Platform**: QEMU `-machine virt`
+**Target**: ARMv8-A AArch64 bare-metal bootloader + test kernel  
+**Platform**: Raspberry Pi Zero 2W / Pi 3B (BCM2710/BCM2837); QEMU `-machine raspi3b`
 
 ---
 
@@ -20,22 +20,33 @@ graph TD
     ROOT --> LINKER["linker/"]
     ROOT --> NEUTRON_DIR["neutron/"]
     ROOT --> TEST_KERNEL["test_kernel/"]
-    
+    ROOT --> SCRIPT["build.ps1 / pack_kernel.py / Dockerfile"]
+
     BOOT --> BOOT_S["start.S<br/>Power-on Assembly"]
-    
-    DRIVER --> UART_C["uart.c<br/>UART Driver"]
-    
-    INCLUDE --> BOOTLOADER_H["bootloader.h<br/>Bootloader API"]
-    INCLUDE --> UART_H["uart.h<br/>UART Header"]
-    
-    LINKER --> BOOTLOADER_LD["bootloader.ld<br/>Bootloader Layout"]
-    LINKER --> KERNEL_LD["kernel.ld<br/>Kernel Layout"]
-    
-    NEUTRON_DIR --> BOOTLOADER_C["bootloader.c<br/>Kernel Loading"]
-    NEUTRON_DIR --> MAIN_C["main.c<br/>Bootloader Entry"]
-    
-    TEST_KERNEL --> KERNEL_MAIN["kernel_main.c<br/>Kernel Entry"]
-    TEST_KERNEL --> KERNEL_START["kernel_start.S<br/>Kernel Assembly"]
+
+    DRIVER --> UART_C["uart.c"]
+    DRIVER --> GPIO_C["gpio.c"]
+    DRIVER --> MBOX_C["mbox.c"]
+    DRIVER --> SD_C["sdcard.c"]
+    DRIVER --> FAT32_C["fat32.c"]
+
+    INCLUDE --> PLATFORM_H["platform.h<br/>Memory map"]
+    INCLUDE --> BOOTLOADER_H["bootloader.h<br/>NKRN / boot_info"]
+    INCLUDE --> UART_H["uart.h"]
+    INCLUDE --> GPIO_H["gpio.h"]
+    INCLUDE --> MBOX_H["mbox.h"]
+    INCLUDE --> SDCARD_H["sdcard.h"]
+    INCLUDE --> FAT32_H["fat32.h"]
+    INCLUDE --> AARCH64_H["aarch64.h"]
+
+    LINKER --> BOOTLOADER_LD["bootloader.ld<br/>0x80000"]
+
+    NEUTRON_DIR --> BOOTLOADER_C["bootloader.c<br/>NKRN load / jump"]
+    NEUTRON_DIR --> MAIN_C["main.c<br/>Bootloader entry"]
+
+    TEST_KERNEL --> KERNEL_MAIN["kernel_main.c"]
+    TEST_KERNEL --> KERNEL_BOOT["boot/kernel_start.S"]
+    TEST_KERNEL --> KERNEL_LD["linker/kernel.ld<br/>0x200000"]
 ```
 
 ---
@@ -43,205 +54,204 @@ graph TD
 ## Directory Overview
 
 ### **root/** — Project Root
+
 - **Contains**: Build configuration and project metadata
 - **Key Files**:
-  - `Makefile` - Build system configuration for cross-compilation
-  - `LICENSE` - BSD-3-Clause licensing information
-- **Purpose**: Entry point for building both bootloader and test kernel
+  - `Makefile` — Build system (bootloader, kernel, SD image, QEMU)
+  - `pack_kernel.py` — NKRN kernel image packer (header + CRC32)
+  - `build.ps1` — Docker-based build helper for Windows
+  - `Dockerfile` — Build environment (Ubuntu 24.04, aarch64 toolchain, mtools)
+  - `LICENSE` — BSD-3-Clause
 
 ---
 
 ### **boot/** — Bootloader Assembly
-- **Contains**: Power-on initialization code in assembly
+
+- **Contains**: Power-on initialization in assembly
 - **Key Files**:
-  - `start.S` - ARM assembly entry point executed immediately after CPU reset
-- **Purpose**: 
-  - CPU initialization and bare-metal setup
-  - Sets up exception handlers
-  - Jumps to bootloader main code (C code in `neutron/`)
-- **Architecture**: ARMv8 AArch64
+  - `start.S` — First code executed after GPU/QEMU loads `kernel8.img` at 0x80000
+- **Purpose**:
+  - Park secondary cores (only core 0 continues)
+  - Detect exception level (EL2 or EL1); if EL2, drop to EL1 (HCR_EL2, SPSR_EL2, ELR_EL2, eret)
+  - Disable MMU and caches at EL1
+  - Set stack to `_start` (0x80000), zero BSS
+  - Call `neutron_main()` (C)
+- **Architecture**: ARMv8-A AArch64
 
 ---
 
 ### **driver/** — Hardware Drivers
-- **Contains**: Device driver implementations
+
+- **Contains**: Device driver implementations for BCM2837-style peripherals
 - **Key Files**:
-  - `uart.c` - PL011 UART driver for serial communication
-- **Purpose**:
-  - UART driver provides serial output (debug messages)
-  - Located at `0x09000000` on QEMU virt machine
-  - Supports 115200 baud rate
-- **Used by**: Both bootloader and test kernel
+  - `uart.c` — PL011 UART0 at 0x3F201000 (GPIO 14/15 ALT0), 115200 8N1, 48 MHz clock
+  - `gpio.c` — GPIO function select and pull-up/down (GPPUD/GPPUDCLK sequence)
+  - `mbox.c` — VideoCore mailbox (property channel): board revision, ARM memory size
+  - `sdcard.c` — SD/MMC card init and block read (EMMC/SDHCI controller)
+  - `fat32.c` — Read-only FAT32: MBR, partition 0, BPB, root directory, file read by name
+- **Purpose**: UART for debug/console; mailbox for board info; SD + FAT32 to load ATOM.BIN from the first partition
+- **Used by**: Bootloader only (test kernel has its own minimal UART/GPIO in `kernel_main.c`)
 
 ---
 
 ### **include/** — Header Files
-- **Contains**: Public API definitions and interfaces
+
+- **Contains**: Public API and platform definitions
 - **Key Files**:
-  - `bootloader.h` - Bootloader data structures and function declarations
-  - `uart.h` - UART driver interface
-- **Purpose**: Interface contracts between modules
-- **Main Structures**:
-  - `bootloader_info_t` - Bootloader information (DTB address, version, flags)
+  - `platform.h` — BCM2710/BCM2837 memory map: MMIO_BASE 0x3F000000, UART0_BASE, GPIO_BASE, SDHOST_BASE, MBOX_BASE; BOOTLOADER_LOAD_ADDR 0x80000, KERNEL_LOAD_ADDR 0x100000, KERNEL_MAX_SIZE; PL011/GPIO/MBOX register offsets
+  - `bootloader.h` — NKRN header layout (`kernel_header_t`), `boot_info_t`, BOOT_INFO_ADDR (0x1000), BL_* return codes; `bl_load_kernel()`, `bl_boot_kernel()`, `crc32()`
+  - `uart.h` — `uart_init()`, `uart_putc`/`uart_puts`/`uart_getc`, `uart_printf`, `uart_puthex64`/`uart_puthex32`/`uart_putdec`
+  - `gpio.h` — `gpio_set_func()`, `gpio_set_pull()`, `gpio_set`/`gpio_clear`/`gpio_get`
+  - `mbox.h` — `mbox_call()`, `mbox_get_board_revision()`, `mbox_get_arm_mem_size()`
+  - `sdcard.h` — `sdcard_init()`, `sdcard_read_block()`/`sdcard_read_blocks()`
+  - `fat32.h` — `fat32_mount()`, `fat32_read_file()`, BPB/dir structures
+  - `aarch64.h` — SPSR/HCR/SCTLR bits for EL2→EL1 drop
 
 ---
 
-### **linker/** — Linker Scripts
-- **Contains**: Memory layout definitions for both bootloader and kernel
+### **linker/** — Bootloader Linker Script
+
+- **Contains**: Memory layout for the bootloader binary
 - **Key Files**:
-  - `bootloader.ld` - Memory layout for bootloader binary
-  - `kernel.ld` - Memory layout for test kernel binary
-- **Purpose**:
-  - Defines memory sections (text, rodata, data, bss, stack)
-  - Sets load addresses for executables
-  - Bootloader typically loads at low memory (0x40000000+)
-  - Kernel typically loads at (0x40200000+)
+  - `bootloader.ld` — ENTRY(_start); origin 0x80000; sections: .text.boot, .vectors (0x800-aligned), .text, .rodata, .data, .bss; symbols __bss_start/__bss_end; PROVIDE(_stack_top = 0x80000)
+- **Purpose**: Bootloader is loaded by GPU/QEMU at 0x80000; layout must match that load address
 
 ---
 
-### **neutron/** — Bootloader Core
-- **Contains**: Main bootloader implementation
+### **neutron/** — Bootloader Core (C)
+
+- **Contains**: Main bootloader logic
 - **Key Files**:
-  - `main.c` - Bootloader entry point and main logic
-  - `bootloader.c` - Kernel loading and jumping mechanism
-- **Purpose**:
-  - UART initialization for debug output
-  - Bootloader information initialization with DTB address
-  - Kernel image location and loading logic
-  - Jump to kernel at 0x40200000 with DTB in x0 register
+  - `main.c` — Entry point `neutron_main()`: UART init, banner, read EL/MPIDR, mailbox (board revision, ARM memory), board identification (Zero 2W vs generic vs QEMU), SD init, FAT32 mount, read ATOM.BIN to KERNEL_LOAD_ADDR (0x100000), NKRN magic check, `bl_load_kernel()`, fill board_revision/arm_mem_size in boot_info, countdown, `bl_boot_kernel(entry, &boot_info)`
+  - `bootloader.c` — `bl_load_kernel(src, out_info)`: validate NKRN magic, version, size, CRC32 of payload; copy payload to header.load_addr; write `boot_info_t` at BOOT_INFO_ADDR (0x1000); `bl_boot_kernel(entry_addr, info)`: dsb/isb, call kernel with x0 = info
 - **Key Responsibilities**:
-  1. Print bootloader version and information
-  2. Locate kernel image in storage/memory
-  3. Load kernel to memory
-  4. Jump to kernel with proper register setup
+  1. Bring up UART and print system/boot info
+  2. Get board and memory info via mailbox
+  3. Initialise SD card and mount first FAT32 partition
+  4. Load ATOM.BIN into staging at 0x100000, validate NKRN, copy payload to load address (0x200000), fill boot_info at 0x1000
+  5. Jump to kernel entry with x0 = pointer to boot_info_t
 
 ---
 
-### **test_kernel/** — Test/Sample Kernel
-- **Contains**: Minimal kernel for bootloader validation
+### **test_kernel/** — Minimal Test Kernel
+
+- **Contains**: Kernel used to validate the boot path
 - **Key Files**:
-  - `kernel_main.c` - Kernel entry point (bare-metal minimal implementation)
-  - `kernel_start.S` - Kernel assembly entry
-  - `ascii.txt` - Test data
-- **Purpose**:
-  - Validates bootloader's kernel loading mechanism
-  - Tests kernel execution in bootloader-provided environment
-  - Minimal implementation showing UART communication
-- **Functionality**:
-  1. Initialize UART
-  2. Print greeting message
-  3. Infinite loop (proof of execution)
+  - `boot/kernel_start.S` — Entry `kernel_start`: save x0 (boot_info*), set stack to 0x1F0000, call `kernel_main(boot_info*)`
+  - `kernel_main.c` — Inline UART/GPIO init (0x3F201000, 115200), print banner and boot_info fields, then heartbeat dots over UART
+  - `linker/kernel.ld` — VMA 0x200000; sections .text.kernel_entry, .text, .rodata, .data, .bss
+- **Purpose**: Prove that the bootloader loads a packed image from SD, validates it, copies to 0x200000, and passes boot_info in x0
+- **Build**: Linked as raw binary, then packed with `pack_kernel.py` (load/entry 0x200000) to produce `atom.bin`, which is placed on the SD image as ATOM.BIN
 
 ---
+
+## Boot Flow
+
 ```mermaid
 flowchart TD
-    Start([Power On / CPU Reset]) --> ASM["Assembly Init<br/>(boot/start.S)<br/>- Setup CPU state<br/>- Configure exception handlers<br/>- Initialize stack"]
-    
-    ASM --> UART["Initialize UART<br/>(driver/uart.c)<br/>- Configure PL011 controller<br/>- Set baud rate 115200"]
-    
-    UART --> PRINT1["Print Debug Info<br/>- Bootloader version<br/>- System info"]
-    
-    PRINT1 --> INIT_BI["Initialize Bootloader Info<br/>- Store DTB address<br/>- Set bootloader version<br/>- Setup flags"]
-    
-    INIT_BI --> LOCATE["Locate Kernel Image at 0x40400000 (temp load from RAM)<br/>- Check memory at 0x40200000<br/>- Validate kernel header"]
-    
-    LOCATE --> VALIDATE{Kernel Valid?}
-    
-    VALIDATE -->|No| ERROR["Print Error<br/>- Kernel not found<br/>- Halt system"]
-    ERROR --> HALT1([System Halt])
-    
-    VALIDATE -->|Yes| LOAD["Load Kernel<br/>- Copy kernel image<br/>- Setup kernel sections<br/>- Initialize kernel BSS"]
-    
-    LOAD --> SETUP_REG["Setup CPU Registers<br/>- x0 = DTB address<br/>- x1-x7 = reserved<br/>- Stack pointer setup"]
-    
-    SETUP_REG --> JUMP["Jump to Kernel<br/>at 0x40200000"]
-    
-    JUMP --> KERNEL_RUN["Kernel Execution<br/>(test_kernel/)<br/>- Bootloader done<br/>- Kernel takes control"]
-    
-    KERNEL_RUN --> END([Kernel Running])
+    Start([Power On / GPU loads kernel8.img at 0x80000]) --> ASM["boot/start.S<br/>- Park cores 1-3<br/>- EL2 → EL1<br/>- Stack, zero BSS<br/>- Call neutron_main"]
+    ASM --> UART["neutron/main.c<br/>- uart_init (PL011)<br/>- Print banner"]
+    UART --> MBOX["Mailbox<br/>- Board revision<br/>- ARM memory size"]
+    MBOX --> SD["SD card init<br/>- sdcard_init()"]
+    SD --> FAT["FAT32 mount<br/>- fat32_mount()"]
+    FAT --> READ["Read ATOM.BIN<br/>- fat32_read_file to 0x100000"]
+    READ --> VALIDATE{NKRN valid?}
+    VALIDATE -->|No| HALT([Halt])
+    VALIDATE -->|Yes| LOAD["neutron/bootloader.c<br/>- bl_load_kernel<br/>- CRC32, copy to 0x200000<br/>- Fill boot_info at 0x1000"]
+    LOAD --> JUMP["bl_boot_kernel<br/>- x0 = boot_info*<br/>- Jump to 0x200000"]
+    JUMP --> KERNEL["test_kernel<br/>- kernel_start.S → kernel_main<br/>- Print boot_info, heartbeat"]
+    KERNEL --> RUN([Kernel running])
 ```
+
+---
+
 ## Build Pipeline
 
 ```mermaid
 graph LR
-    subgraph Sources
+    subgraph Bootloader
         AS["boot/start.S"]
         BC["neutron/bootloader.c"]
         MC["neutron/main.c"]
         UC["driver/uart.c"]
-        KS["test_kernel/kernel_start.S"]
+        GC["driver/gpio.c"]
+        MC2["driver/mbox.c"]
+        SC["driver/sdcard.c"]
+        FC["driver/fat32.c"]
+    end
+    subgraph Kernel
+        KS["test_kernel/boot/kernel_start.S"]
         KM["test_kernel/kernel_main.c"]
     end
-    
-    subgraph Compilation
-        ASO["boot/start.o"]
-        BCO["bootloader.o"]
-        MCO["main.o"]
-        UCO["uart.o"]
-        KSO["kernel_start.o"]
-        KMO["kernel_main.o"]
+    subgraph Link
+        BLLD["linker/bootloader.ld"]
+        KLLD["test_kernel/linker/kernel.ld"]
+        BLE["build/neutron.elf"]
+        KRE["build/kernel_raw.elf"]
+        KRB["build/kernel_raw.bin"]
     end
-    
-    subgraph Linking
-        BLLD["bootloader.ld"]
-        KMLD["kernel.ld"]
-        BLE["bootloader.elf"]
-        KBE["kernel.elf"]
+    subgraph Output
+        BLIMG["bin/kernel8.img"]
+        ATOM["bin/atom.bin"]
+        SDIMG["bin/sd.img"]
     end
-    
-    subgraph Finalization
-        BLB["bootloader.bin"]
-        KBB["kernel.bin"]
-    end
-    
-    AS -->|aarch64-gcc| ASO
-    BC -->|aarch64-gcc| BCO
-    MC -->|aarch64-gcc| MCO
-    UC -->|aarch64-gcc| UCO
-    KS -->|aarch64-gcc| KSO
-    KM -->|aarch64-gcc| KMO
-    
-    ASO -->|aarch64-ld + BLLD| BLE
-    BCO --> BLE
-    MCO --> BLE
-    UCO --> BLE
-    
-    KSO -->|aarch64-ld + KMLD| KBE
-    KMO --> KBE
-    UCO --> KBE
-    
-    BLE -->|objcopy| BLB
-    KBE -->|objcopy| KBB
-    
-    BLB --> QEMU["QEMU Simulation"]
-    KBB --> QEMU
-    
-    style Sources fill:#e3f2fd
-    style Compilation fill:#fff3e0
-    style Linking fill:#f3e5f5
-    style Finalization fill:#e8f5e9
-    style QEMU fill:#fce4ec
+
+    AS --> BLE
+    BC --> BLE
+    MC --> BLE
+    UC --> BLE
+    GC --> BLE
+    MC2 --> BLE
+    SC --> BLE
+    FC --> BLE
+    BLLD --> BLE
+    BLE --> BLIMG
+
+    KS --> KRE
+    KM --> KRE
+    KLLD --> KRE
+    KRE --> KRB
+    KRB -->|pack_kernel.py| ATOM
+    ATOM --> SDIMG
 ```
 
 ---
 
 ## Memory Layout
 
-### Bootloader Memory Map
+### Raspberry Pi / QEMU raspi3b
+
+- **0x00000000 – 0x3EFFFFFF**: RAM (1 GiB on raspi3b)
+- **0x80000**: Bootloader load address (`kernel8.img`). Stack grows downward from here.
+- **0x100000**: Kernel staging. ATOM.BIN is read from SD into this region; bootloader parses NKRN header here and copies payload to load address.
+- **0x200000**: Kernel load and entry address. Payload of ATOM.BIN is copied here; bootloader jumps to this address with x0 = boot_info*.
+- **0x1000**: `boot_info_t` structure filled by the bootloader (magic, board_revision, arm_mem_size, kernel_load_addr, kernel_entry_addr, kernel_size, bootloader_version string).
+- **0x3F000000**: BCM2837 peripheral base (MMIO).
+- **0x3F200000**: GPIO.
+- **0x3F201000**: PL011 UART0.
+- **0x3F202000**: SDHOST (SD card on QEMU raspi3b).
+- **0x3F00B880**: Mailbox.
+
+### Diagram
+
 ```
-0x40000000 +--------------------+
-           | Bootloader Code    |  (start.S, main.c, bootloader.c)
-           | BSS Segment        |  (uninitialized data)
+0x00080000 +--------------------+
+           | Bootloader         |  kernel8.img (start.S, main.c, bootloader.c, drivers)
+           | Stack (down)       |
            +--------------------+
-           | Bootloader Stack   |
-0x40100000 +--------------------+
-           | (unused)           |
-0x40200000 +--------------------+
-           | Test Kernel Code   |  (kernel_start.S, kernel_main.c)
-           | Kernel BSS         |
-           | Kernel Stack       |
-0x40300000 +--------------------+
-           | DTB (Device Tree)  |  (provided by QEMU)
+0x00100000 +--------------------+
+           | Staging (ATOM.BIN) |  FAT32 read buffer; NKRN header parsed here
+           +--------------------+
+0x00200000 +--------------------+
+           | Kernel payload     |  Copied here; entry point
+           | (test_kernel)      |
+           +--------------------+
+0x00001000 +--------------------+
+           | boot_info_t        |  Written by bootloader for kernel
+           +--------------------+
+0x3F000000 +--------------------+
+           | Peripherals        |  GPIO, UART, SDHOST, Mailbox, ...
+           +--------------------+
 ```
 
 ---
@@ -250,31 +260,30 @@ graph LR
 
 | Component | Location | Responsibility |
 |-----------|----------|-----------------|
-| **CPU Init** | `boot/start.S` | Exception setup, CPU state initialization, memory fence |
-| **Bootloader Main** | `neutron/main.c` | UART init, bootloader info, kernel discovery |
-| **Kernel Loading** | `neutron/bootloader.c` | Load kernel image, validate, setup x0 (DTB), jump to kernel |
-| **UART Driver** | `driver/uart.c` | PL011 initialization, character I/O for debugging |
-| **Linker Scripts** | `linker/*.ld` | Memory section layout, symbol definitions, load addresses |
-| **Test Kernel** | `test_kernel/kernel_main.c` | Accept control from bootloader, prove execution with output |
+| **CPU / EL** | `boot/start.S` | Park secondaries, EL2→EL1, MMU/cache off, stack, BSS, call neutron_main |
+| **Bootloader entry** | `neutron/main.c` | UART, banner, mailbox, SD init, FAT32 mount, load ATOM.BIN, NKRN check, bl_load_kernel, bl_boot_kernel |
+| **Kernel load** | `neutron/bootloader.c` | NKRN validation, CRC32, copy payload to load_addr, fill boot_info at 0x1000, jump with x0 = boot_info |
+| **UART** | `driver/uart.c` | PL011 at 0x3F201000, GPIO 14/15 ALT0, 115200 8N1 |
+| **GPIO** | `driver/gpio.c` | Function select, pull-up/down for UART pins |
+| **Mailbox** | `driver/mbox.c` | Board revision, ARM memory size |
+| **SD card** | `driver/sdcard.c` | Init and block read |
+| **FAT32** | `driver/fat32.c` | Mount first partition, read file by name (ATOM.BIN) |
+| **Platform** | `include/platform.h` | Addresses and register offsets for BCM2837 |
+| **Test kernel** | `test_kernel/` | Receives boot_info in x0, prints it, heartbeat |
 
 ---
 
 ## Cross-Compilation Toolchain
 
-The project uses AArch64 cross-compiler (auto-detected):
-- **Options**: `aarch64-none-elf-*`, `aarch64-linux-gnu-*`, or `aarch64-elf-*`
-- **Key Tools**:
-  - `aarch64-*-gcc` - C compiler
-  - `aarch64-*-as` - Assembler
-  - `aarch64-*-ld` - Linker
-  - `aarch64-*-objcopy` - Binary generator
-  - `aarch64-*-objdump` - Disassembler
+- **Default prefix**: `aarch64-linux-gnu-` (override with `make CROSS=aarch64-none-elf- ...`).
+- **Tools**: gcc (CC/AS), ld, objcopy, objdump, size.
+- **SD image**: `parted`, `mtools`, `dosfstools` (mformat, mcopy, mdir) for generating `bin/sd.img`.
 
 ---
 
 ## References
 
-- **QEMU virt machine**: UART at `0x09000000` (PL011)
-- **ARM Documentation**: ARMv8 AArch64 ISA
-- **QEMU Parameters**: `-machine virt -cpu cortex-a53 -m 256M`
-- **License**: BSD-3-Clause (see LICENSE file)
+- **QEMU raspi3b**: `-machine raspi3b -cpu cortex-a53 -m 1G`; UART at 0x3F201000; SD card via `-drive file=sd.img,if=sd,format=raw`.
+- **BCM2837**: Peripherals at 0x3F000000; PL011 UART0 at 0x3F201000; 48 MHz UART clock for 115200 baud.
+- **ARM**: ARMv8-A AArch64; EL2→EL1 drop (HCR_EL2.RW, SPSR_EL2, ELR_EL2, eret).
+- **License**: BSD-3-Clause (see LICENSE file).
