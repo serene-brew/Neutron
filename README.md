@@ -1,11 +1,12 @@
 <div align=center>
 <img width="500" height="500" alt="Neutron_Logo_for_Github" src="https://github.com/user-attachments/assets/8b634af5-5973-4994-9cdc-d485141269e3" />
 
-### A Piece of Project Atom
+### A Piece of Project atom
+### v1.0.0
 </div>
 
 ---
-
+<a href="https://discord.gg/vdUtjTSQF4"><img src="https://invidget.switchblade.xyz/vdUtjTSQF4"></a>
 ARMv8 AArch64 bare-metal bootloader for **Raspberry Pi Zero 2W** (and compatible boards). Runs in **QEMU** using the **raspi3b** machine, which emulates the same BCM2837-style peripherals and address map. Loads a kernel from the SD card (FAT32) and transfers control with a boot-info structure.
 
 ## Overview
