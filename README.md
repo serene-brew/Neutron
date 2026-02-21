@@ -6,20 +6,22 @@
 
 ---
 
-ARMv8 AArch64 bare-metal bootloader for QEMU virt machine. Loads and transfers control to a test kernel.
+ARMv8 AArch64 bare-metal bootloader for **Raspberry Pi Zero 2W** (and compatible boards). Runs in **QEMU** using the **raspi3b** machine, which emulates the same BCM2837-style peripherals and address map. Loads a kernel from the SD card (FAT32) and transfers control with a boot-info structure.
 
 ## Overview
 
 Neutron is a minimal yet functional bootloader that:
 
-- Initializes CPU state on ARMv8 AArch64 architecture
-- Sets up serial communication (UART PL011 at 0x09000000)
-- Locates and validates kernel image in memory at 0x40400000 
-- Loads kernel to predefined memory location (0x40200000)
-- Transfers control with Device Tree Blob address in x0 register
+- Initializes CPU state on ARMv8 AArch64 (EL2 to EL1, parks secondary cores)
+- Sets up serial communication (PL011 UART at **0x3F201000**, 115200 baud, 48 MHz clock)
+- Queries board revision and ARM memory size via the VideoCore mailbox
+- Initializes the SD card and mounts the first FAT32 partition
+- Loads a packed kernel image (**ATOM.BIN**) from the SD card into a staging area at **0x100000**
+- Validates the NKRN header (magic, CRC32), copies the payload to the load address (**0x200000**), and fills a `boot_info_t` at **0x1000**
+- Jumps to the kernel entry point with `x0` = pointer to `boot_info_t`
 - Provides debug output throughout execution
 
-Designed for educational purposes and QEMU simulation.
+Designed for educational purposes, QEMU simulation (`-machine raspi3b`), and deployment on Raspberry Pi Zero 2W (or Pi 3B) with an SD card.
 
 ---
 
@@ -27,32 +29,48 @@ Designed for educational purposes and QEMU simulation.
 
 ### Requirements
 
-- AArch64 cross-compiler toolchain (auto-detected)
+- **AArch64 cross-compiler** (default prefix: `aarch64-linux-gnu-`)
   - Arch: `sudo pacman -S aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils`
   - Fedora: `sudo dnf install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu`
   - Ubuntu: `sudo apt install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu`
-- QEMU with ARM support
-- GNU Make
+- **QEMU** with ARM support (`qemu-system-aarch64`)
+- **GNU Make**
+- **SD image tools** (for building the FAT32 disk image):
+  - `parted`, `mtools`, `dosfstools`
+  - Ubuntu/Debian: `sudo apt install parted mtools dosfstools`
+
+Override the toolchain with: `make CROSS=aarch64-none-elf- all`
 
 ### Building
 
 ```bash
 make clean
-make all #build both bootloader and the test kernel
-make bootloader #compile just the bootloader
-make kernel #compile just the kernel
+make all        # build bootloader + kernel + SD image (default)
+make bootloader # compile only kernel8.img
+make kernel     # compile only atom.bin (raw kernel + NKRN pack)
+make sd-image   # create sd.img from atom.bin (FAT32, ATOM.BIN in root)
 ```
 
 This generates:
-- `build/bootloader.bin` - Compiled bootloader
-- `build/kernel.bin` - Compiled test kernel
+
+- **`bin/kernel8.img`** — Bootloader binary (loaded by GPU / QEMU at 0x80000)
+- **`bin/atom.bin`** — Packed test kernel (NKRN header + payload); must be placed on SD as **ATOM.BIN**
+- **`bin/sd.img`** — 64 MiB FAT32 disk image with `ATOM.BIN` in the root (used by QEMU as the SD card)
 
 ### Running in QEMU
 
 ```bash
-make qemu # for running just the bootloader
-make qemu-kernel #for running the bootloader along with the testing kernel
+make qemu-rpi   # build all, then boot with kernel8.img + sd.img
 ```
+
+QEMU is invoked with `-machine raspi3b`, `-cpu cortex-a53`, 1 GiB RAM, `-kernel bin/kernel8.img`, and `-drive file=bin/sd.img,if=sd,format=raw`. Serial I/O goes to the terminal (`-serial mon:stdio`).
+
+### Running on real hardware (Raspberry Pi Zero 2W / Pi 3B)
+
+1. Prepare an SD card with the official Raspberry Pi boot files: `bootcode.bin`, `start.elf`, `fixup.dat` (and optionally `config.txt`).
+2. Copy **`bin/kernel8.img`** to the SD card as the kernel image (rename if your setup expects a specific name).
+3. Ensure the first partition is FAT32 and contains **ATOM.BIN** (the packed kernel) in the root directory. You can use `bin/sd.img`’s first partition as a reference, or copy `bin/atom.bin` onto the card as `ATOM.BIN`.
+4. Boot the board; the GPU will load `kernel8.img` at 0x80000 and hand off to Neutron, which then loads the kernel from the SD card and jumps to it.
 
 ---
 
@@ -60,17 +78,20 @@ make qemu-kernel #for running the bootloader along with the testing kernel
 
 ```
 Neutron/
-  boot/              - Power-on assembly initialization
-  driver/            - Hardware drivers (UART)
-  include/           - Header files and APIs
-  linker/            - Memory layout scripts
-  neutron/           - Bootloader main implementation
-  test_kernel/       - Minimal test kernel
+  boot/              - Power-on assembly (start.S): EL2→EL1, BSS, entry
+  driver/            - Hardware drivers (UART, GPIO, mailbox, SD card, FAT32)
+  include/           - Headers (platform.h, bootloader.h, uart.h, etc.)
+  linker/            - Bootloader linker script (0x80000)
+  neutron/           - Bootloader C (main.c, bootloader.c)
+  test_kernel/       - Minimal test kernel (boot + linker + kernel_main.c)
   Makefile           - Build configuration
+  pack_kernel.py     - NKRN kernel image packer (header + CRC32)
+  build.ps1          - Docker-based build helper (Windows)
+  Dockerfile         - Build environment (Ubuntu, aarch64 toolchain, mtools)
   LICENSE            - BSD-3-Clause
 ```
 
-See [architecture.md](architecture.md) for detailed documentation.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation.
 
 ---
 
@@ -78,48 +99,125 @@ See [architecture.md](architecture.md) for detailed documentation.
 
 | Component | Role |
 |-----------|------|
-| boot/start.S | CPU initialization and exception setup |
-| neutron/main.c | Bootloader entry point and UART init |
-| neutron/bootloader.c | Kernel loading and transfer logic |
-| driver/uart.c | PL011 UART driver for debug output |
-| test_kernel/ | Minimal kernel for validation |
+| **boot/start.S** | CPU init, exception level drop (EL2→EL1), park secondaries, BSS zero, call `neutron_main` |
+| **neutron/main.c** | UART init, banner, mailbox (board rev / ARM mem), SD init, FAT32 mount, load ATOM.BIN, validate NKRN, `bl_load_kernel`, `bl_boot_kernel` |
+| **neutron/bootloader.c** | NKRN validation, CRC32 check, copy payload to load address, fill `boot_info_t` at 0x1000, `bl_boot_kernel` (jump with x0 = boot_info) |
+| **driver/uart.c** | PL011 UART at 0x3F201000 (GPIO 14/15 ALT0), 115200 8N1 |
+| **driver/gpio.c** | BCM2837 GPIO (function select, pull-up/down) |
+| **driver/mbox.c** | VideoCore mailbox (board revision, ARM memory size) |
+| **driver/sdcard.c** | SD/MMC card init and block read |
+| **driver/fat32.c** | Read-only FAT32 (MBR, BPB, root dir, file read) |
+| **include/platform.h** | BCM2710/BCM2837 memory map (0x80000, 0x100000, 0x200000, MMIO 0x3F000000) |
+| **test_kernel/** | Minimal kernel: prints `boot_info_t`, then heartbeat dots over UART |
+
+---
+
+## Memory and Address Map
+
+- **0x80000** — Bootloader (`kernel8.img`) load address; stack grows downward from here.
+- **0x100000** — Staging: FAT32 file **ATOM.BIN** is read here; bootloader then parses the NKRN header and copies the payload to the load address.
+- **0x200000** — Kernel load and entry address (payload of ATOM.BIN).
+- **0x1000** — `boot_info_t` filled by the bootloader (magic, board revision, ARM memory size, kernel load/entry/size, bootloader version string).
+- **0x3F000000** — BCM2837 peripheral base (GPIO, UART0, SDHOST, mailbox, etc.).
+- **0x3F201000** — PL011 UART0 (used for serial console).
+
+---
+
+## Kernel Image Format (NKRN)
+
+The bootloader expects a **packed** kernel image (e.g. **ATOM.BIN** on the SD card):
+
+- **Header (64 bytes):** magic `"NKRN"` (0x4E4B524E), version, load address, entry address, payload size, CRC32 of payload, 40-byte name.
+- **Payload:** raw AArch64 binary (e.g. from `objcopy -O binary` of the test kernel).
+
+Use **`pack_kernel.py`** to produce a packed image from a raw binary:
+
+```bash
+python3 pack_kernel.py build/kernel_raw.bin -o bin/atom.bin -n "Neutron Test Kernel"
+```
+
+Default load/entry in the script are **0x200000** to match the test kernel linker script. The Makefile runs this step when building the kernel target.
 
 ---
 
 ## Build Configuration
 
-The Makefile auto-detects the AArch64 cross-compiler:
-- `aarch64-none-elf-*`
-- `aarch64-linux-gnu-*`
-- `aarch64-elf-*`
+- **Toolchain:** `CROSS` defaults to `aarch64-linux-gnu-`; override with `make CROSS=aarch64-none-elf- ...`.
+- **QEMU:** `-machine raspi3b`, `-cpu cortex-a53`, `-m 1G`, `-kernel bin/kernel8.img`, `-drive file=bin/sd.img,if=sd,format=raw`, `-serial mon:stdio`, `-display none`.
 
-Supported targets:
-- `make` - Build bootloader and kernel
-- `make clean` - Remove build artifacts
-- `make distclean` - Full clean including built binaries
+### Linux (and macOS)
 
----
+Use GNU Make and the AArch64 cross-compiler directly. From the project root:
 
-## Features
+```bash
+make all        # bootloader + kernel + SD image
+make bootloader # only bin/kernel8.img
+make kernel     # only bin/atom.bin
+make sd-image   # only bin/sd.img (needs atom.bin)
+make qemu-rpi   # build all, then run QEMU
+make size       # section sizes
+make clean      # remove build/ and bin/
+```
 
-- Bare-metal bootloader for ARMv8 AArch64
-- UART serial communication at 115200 baud
-- Kernel validation before execution
-- DTB (Device Tree Blob) support
-- Debug output for troubleshooting
-- Minimal test kernel for validation
+Ensure SD image tools are installed (`parted`, `mtools`, `dosfstools`) for `make sd-image` and `make all`.
+
+### Windows (Docker-based build helper)
+
+On Windows you can build inside a Docker container using **`build.ps1`** (PowerShell). This uses the project’s **Dockerfile** (Ubuntu 24.04, AArch64 toolchain, `parted`, `mtools`, `dosfstools`) so you do not need a native cross-compiler or SD tools on the host.
+
+**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or another Docker engine) and PowerShell.
+
+**One-time setup:** build and tag the image:
+
+```powershell
+.\build.ps1 docker
+```
+
+(This runs `docker build` and tags the image as `neutron-build:latest`.)
+
+**Build targets** (run Make inside the container; artefacts are written into your project directory via a bind mount):
+
+```powershell
+.\build.ps1 all          # bootloader + kernel + sd.img
+.\build.ps1 bootloader   # only kernel8.img
+.\build.ps1 kernel      # only atom.bin
+.\build.ps1 sd-image    # only sd.img
+.\build.ps1 clean       # remove build artefacts
+.\build.ps1 size        # section sizes
+```
+
+**Build and run QEMU:** build everything in Docker, then run QEMU on the host (requires QEMU and Make installed on Windows, e.g. via MSYS2 or Chocolatey):
+
+```powershell
+.\build.ps1 qemu
+```
+
+This is equivalent to `.\build.ps1 all` followed by `make qemu-rpi` (or `mingw32-make qemu-rpi` if you use MinGW Make). The script prefers `make` and falls back to `mingw32-make` when available.
+
+**Summary of `build.ps1` commands:**
+
+| Command          | Description                                      |
+|------------------|--------------------------------------------------|
+| `.\build.ps1 docker`       | Build and tag Docker image (first-time setup)   |
+| `.\build.ps1 docker-build` | Build Docker image only                         |
+| `.\build.ps1 tag`          | Tag image as `neutron-build:latest`             |
+| `.\build.ps1 all`          | Run `make all` in container                     |
+| `.\build.ps1 bootloader`  | Run `make bootloader` in container              |
+| `.\build.ps1 kernel`       | Run `make kernel` in container                  |
+| `.\build.ps1 sd-image`    | Run `make sd-image` in container                |
+| `.\build.ps1 clean`       | Run `make clean` in container                   |
+| `.\build.ps1 size`        | Run `make size` in container                    |
+| `.\build.ps1 qemu`        | Run `make all` in container, then QEMU on host |
 
 ---
 
 ## Contributions
 
-Contributions are welcome.
+Contributions are welcome. For system flow, memory layout, build pipeline, and guidelines see:
 
-For detailed system flow, memory layout, build pipeline, and component responsibilities, and guidelines please see:
-
-* [`ARCHITECTURE.md`](ARCHITECTURE.md)
-* [`CONTRIBUTING.md`](CONTRIBUTING.md)
-* [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE-OF-CONDUCT.md](CODE-OF-CONDUCT.md)
 
 All changes are accepted via Pull Requests.
 
