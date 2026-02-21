@@ -16,215 +16,182 @@
  *   UART0 (PL011) : 0x09000000
  * =============================================================================
  */
+
 #include "bootloader.h"
+#include "fat32.h"
+#include "mbox.h"
+#include "platform.h"
+#include "sdcard.h"
 #include "uart.h"
-#include <stdarg.h>
 #include <stdint.h>
 
-#define UART0_BASE 0x09000000UL
-#define UART_CLK_HZ 24000000UL
-#define UART_BAUD 115200UL
+/* ----------------------------------------------------------------
+ * ANSI colour helpers
+ * ---------------------------------------------------------------- */
+#define ANSI_RESET "\x1b[0m"
+#define ANSI_BOLD "\x1b[1m"
+#define ANSI_GREEN "\x1b[32m"
+#define ANSI_CYAN "\x1b[36m"
+#define ANSI_YELLOW "\x1b[33m"
+#define ANSI_RED "\x1b[31m"
 
-extern uint64_t _bootloader_start, _bootloader_end;
-extern uint64_t _bss_start, _bss_end;
-extern uint64_t _stack_top;
-/* ---- Dual output ---------------------------------------------------------- */
-static void bputc(char c) {
-    uart_putc(c);
+/* ----------------------------------------------------------------
+ * Banner
+ * ---------------------------------------------------------------- */
+static void print_banner(void) {
+  uart_puts(ANSI_BOLD ANSI_CYAN);
+  uart_puts("\n");
+
+  uart_puts(ANSI_RESET);
+  uart_puts(ANSI_GREEN);
+  uart_puts("       ~ Neutron Bootloader  v1.0.0\n");
+  uart_puts(ANSI_RESET);
+  uart_puts(
+      "------------------------------------------------------------------\n");
 }
 
-static void bputs(const char *s) {
-    while (*s)
-        bputc(*s++);
+/* ----------------------------------------------------------------
+ * read_exception_level()
+ * ---------------------------------------------------------------- */
+static uint32_t read_exception_level(void) {
+  uint64_t el;
+  __asm__ volatile("mrs %0, CurrentEL" : "=r"(el));
+  return (uint32_t)((el >> 2) & 0x3);
 }
 
-/* ---- Minimal udiv64 -------------------------------------------------------
- */
-static uint64_t udiv64(uint64_t n, uint64_t d, uint64_t *r) {
-  uint64_t q = 0, dd = d;
-  int s = 0;
-  while (!(dd & (1ULL << 63)) && dd <= (n >> 1)) {
-    dd <<= 1;
-    s++;
-  }
-  for (int i = s; i >= 0; i--)
-    if ((d << i) <= n) {
-      n -= d << i;
-      q |= 1ULL << i;
-    }
-  if (r)
-    *r = n;
-  return q;
-}
-/* ============================================================================
- * bootloader_sleep — Sleep for specified milliseconds
- *
- * Simple busy-wait sleep function for timing delays in bootloader
- * ============================================================================ */
-void bootloader_sleep(uint32_t milliseconds) {
-    /* Approximate sleep using a loop
-     * At ~50 million loops per second, ~50,000 loops per ms on cortex-a53
-     */
-    volatile uint32_t loops_per_ms = 50000;
-    for (uint32_t ms = 0; ms < milliseconds; ms++) {
-        for (volatile uint32_t i = 0; i < loops_per_ms; i++) {
-            asm volatile("nop");
-        }
-    }
+/* ----------------------------------------------------------------
+ * read_mpidr()
+ * ---------------------------------------------------------------- */
+static uint64_t read_mpidr(void) {
+  uint64_t mpidr;
+  __asm__ volatile("mrs %0, mpidr_el1" : "=r"(mpidr));
+  return mpidr;
 }
 
-/* ---- kprintf --------------------------------------------------------------
- */
-static void print_u64(uint64_t n, int base, int pad, char pc) {
-    char buf[20];
-    int i = 0;
-    if (!n) {
-        buf[i++] = '0';
-    } else if (base == 16) {
-        while (n) {
-            buf[i++] = "0123456789abcdef"[n & 0xf];
-            n >>= 4;
-        }
+/* ----------------------------------------------------------------
+ * neutron_main()  -  called from start.S
+ * ---------------------------------------------------------------- */
+void neutron_main(void) {
+  /* ----- Hardware init ----- */
+  uart_init();
+  print_banner();
+
+  /* ----- CPU state ----- */
+  uint32_t el = read_exception_level();
+  uint64_t mpidr = read_mpidr();
+
+  uart_printf(ANSI_BOLD "[CPU] Exception Level : EL%d\n" ANSI_RESET, el);
+  uart_printf("[CPU] MPIDR           : %x\n", mpidr);
+  uart_printf("[CPU] Core ID         : %d\n", (int)(mpidr & 0xFF));
+
+  /* ----- Board info via mailbox ----- */
+  uart_puts("\n[MBOX] Querying board information...\n");
+  uint32_t board_rev = mbox_get_board_revision();
+  uint32_t arm_mem = mbox_get_arm_mem_size();
+
+  uart_printf("[MBOX] Board revision : %X\n", board_rev);
+  uart_printf("[MBOX] ARM memory     : %u MiB\n", arm_mem >> 20);
+
+  /* ----- Identify board variant ----- */
+  uart_puts("\n[BL] Board identification:\n");
+  if (board_rev != 0) {
+    uart_printf("[BL]   Revision code  : %X\n", board_rev);
+    if ((board_rev & 0xFFFFFF) == 0x902120 ||
+        (board_rev & 0xFF0000) == 0x900000) {
+      uart_puts("[BL]   Board          : Raspberry Pi Zero 2W\n");
     } else {
-        while (n) {
-            uint64_t r;
-            n = udiv64(n, 10, &r);
-            buf[i++] = '0' + r;
-        }
+      uart_puts("[BL]   Board          : Raspberry Pi (generic)\n");
     }
-    while (i < pad)
-        buf[i++] = pc;
-    while (i--)
-        bputc(buf[i]);
-}
+  } else {
+    uart_puts("[BL]   Board          : QEMU simulated (raspi3b)\n");
+  }
 
-/* Bootloader printf with minimal format support ============================= */
-void bootloader_printf(const char *fmt, ...) {
-    va_list a;
-    va_start(a, fmt);
-    while (*fmt) {
-        if (*fmt != '%') {
-            bputc(*fmt++);
-            continue;
-        }
-        fmt++;
-        char pc = ' ';
-        int pw = 0;
-        if (*fmt == '0') {
-            pc = '0';
-            fmt++;
-        }
-        while (*fmt >= '0' && *fmt <= '9') {
-            pw = pw * 10 + (*fmt - '0');
-            fmt++;
-        }
-        switch (*fmt) {
-        case 'c':
-            bputc((char)va_arg(a, int));
-            break;
-        case 's': {
-            const char *s = va_arg(a, const char *);
-            bputs(s ? s : "(null)");
-            break;
-        }
-        case 'd':
-        case 'i': {
-            long n = va_arg(a, int);
-            if (n < 0) {
-                bputc('-');
-                n = -n;
-            }
-            print_u64((uint64_t)n, 10, pw, pc);
-            break;
-        }
-        case 'u':
-            print_u64(va_arg(a, uint64_t), 10, pw, pc);
-            break;
-        case 'x':
-        case 'X':
-            print_u64(va_arg(a, uint64_t), 16, pw, pc);
-            break;
-        case 'p': {
-            bputs("0x");
-            uint64_t p = (uint64_t)(uintptr_t)va_arg(a, void *);
-            for (int s = 60; s >= 0; s -= 4)
-                bputc("0123456789abcdef"[(p >> s) & 0xf]);
-            break;
-        }
-        case '%':
-            bputc('%');
-            break;
-        default:
-            bputc('%');
-            bputc(*fmt);
-            break;
-        }
-        fmt++;
-    }
-    va_end(a);
-}
+  /* ----- Initialise SD card ----- */
+  uart_puts("\n[BL] Initialising SD card...\n");
+  int rc = sdcard_init();
+  if (rc != SD_OK) {
+    uart_printf(
+        ANSI_RED "[BL] FATAL: SD card init failed (error %d)\n" ANSI_RESET, rc);
+    uart_puts("[BL] System halted.\n");
+    while (1)
+      __asm__ volatile("wfe");
+  }
 
-/* ============================================================================
- * bootloader_main — Main bootloader entry point
- *
- * Called from boot/start.S after:
- * - CPU initialization (EL2→EL1)
- * - Stack setup
- * - BSS zeroing
- * - Data relocation
- *
- * Bootloader tasks:
- * 1. Initialize UART for debug output
- * 2. Print bootloader welcome message
- * 3. Initialize bootloader info structure
- * 4. Load kernel from storage/memory
- * 5. Jump to kernel with DTB in x0
- * ============================================================================ */
-void bootloader_main(void) {
-    /* x10 contains DTB address (passed from assembly) */
-    uint64_t dtb_addr;
-    asm volatile("mov %0, x10" : "=r"(dtb_addr));
+  /* ----- Mount FAT32 volume ----- */
+  uart_puts("\n[BL] Mounting FAT32 volume...\n");
+  rc = fat32_mount();
+  if (rc != FAT32_OK) {
+    uart_printf(
+        ANSI_RED "[BL] FATAL: FAT32 mount failed (error %d)\n" ANSI_RESET, rc);
+    uart_puts("[BL] System halted.\n");
+    while (1)
+      __asm__ volatile("wfe");
+  }
 
-    /* Initialize UART first so we can debug */
-    uart_init(UART0_BASE, UART_CLK_HZ, UART_BAUD);
+  /* ----- Load kernel.bin from SD card into staging area ----- */
+  uart_puts("\n[BL] Loading kernel.bin from SD card...\n");
 
-    /* Print bootloader banner */
-    bootloader_printf("\r\n");
-    bootloader_printf("  +------------------------------------------+\r\n");
-    bootloader_printf("  |  ARMv8 AArch64 Bootloader                |\r\n");
-    bootloader_printf("  |  Kernel loading bootloader               |\r\n");
-    bootloader_printf("  +------------------------------------------+\r\n");
-    bootloader_printf("\r\n");
+  uint32_t bytes_loaded = 0;
+  rc = fat32_read_file("ATOM.BIN", (void *)(uintptr_t)KERNEL_LOAD_ADDR,
+                       KERNEL_MAX_SIZE, &bytes_loaded);
 
-    /* Print system information */
-    bootloader_printf("[BOOT] UART initialized\r\n");
-    bootloader_printf("[BOOT] Base: 0x%016x\r\n", UART0_BASE);
-    bootloader_printf("[BOOT] Clock: %d Hz\r\n", UART_CLK_HZ);
-    bootloader_printf("[BOOT] Baud: %d\r\n", UART_BAUD);
-    bootloader_printf("\r\n");
+  if (rc != FAT32_OK) {
+    uart_printf(ANSI_RED
+                "[BL] FATAL: atom.bin not found on SD card (error %d)\n"
+                "[BL]        Ensure kernel.bin is in the FAT32 root "
+                "directory.\n" ANSI_RESET,
+                rc);
+    uart_puts("[BL] System halted.\n");
+    while (1)
+      __asm__ volatile("wfe");
+  }
 
-    /* Print memory layout */
-    uint64_t bl_start = (uint64_t)&_bootloader_start;
-    uint64_t bl_end = (uint64_t)&_bootloader_end;
-    bootloader_printf("[BOOT] Memory layout:\r\n");
-    bootloader_printf("  bootloader       : 0x%016x -- 0x%016x (%u bytes)\r\n",
-                      bl_start, bl_end, bl_end - bl_start);
-    bootloader_printf("  kernel(staging)  : 0x%016x\r\n", KERNEL_IMAGE_LOAD_ADDR);
-    bootloader_printf("  kernel           : 0x%016x\r\n", KERNEL_BASE);
-    bootloader_printf("  DTB address      : 0x%016x\r\n", dtb_addr);
-    bootloader_printf("\r\n");
+  uart_printf(ANSI_YELLOW "[BL] atom.bin loaded: %u bytes at 0x%X\n" ANSI_RESET,
+              bytes_loaded, (uint32_t)KERNEL_LOAD_ADDR);
 
-    /* Initialize bootloader info with DTB address */
-    bootloader_info_init(dtb_addr);
+  /* ----- Validate NKRN magic ----- */
+  const uint32_t *probe = (const uint32_t *)(uintptr_t)KERNEL_LOAD_ADDR;
+  if (*probe != KERNEL_MAGIC) {
+    uart_printf(
+        ANSI_RED
+        "[BL] FATAL: bad magic at 0x%X - got 0x%X, expected 0x%X\n"
+        "[BL]        Is kernel.bin packed with pack_kernel.py?\n" ANSI_RESET,
+        (uint32_t)KERNEL_LOAD_ADDR, *probe, KERNEL_MAGIC);
+    uart_puts("[BL] System halted.\n");
+    while (1)
+      __asm__ volatile("wfe");
+  }
 
-    /* Load kernel (for Approach 1: kernel is already loaded by firmware) */
-    bootloader_printf("[BOOT] Loading kernel...\r\n");
-    if (bootloader_load_kernel() != 0) {
-        bootloader_printf("[ERROR] Failed to load kernel\r\n");
-        while (1)
-            ;
-    }
+  /* ----- Run bootloader validation + copy ----- */
+  uart_puts("\n[BL] Validating and loading kernel image...\n");
 
-    /* Jump to kernel (never returns) */
-    bootloader_jump_to_kernel(dtb_addr);
+  boot_info_t boot_info;
+  rc = bl_load_kernel(KERNEL_LOAD_ADDR, &boot_info);
+
+  if (rc != BL_OK) {
+    uart_printf(ANSI_RED
+                "[BL] FATAL: kernel validation failed (error %d)\n" ANSI_RESET,
+                rc);
+    uart_puts("[BL] System halted.\n");
+    while (1)
+      __asm__ volatile("wfe");
+  }
+
+  /* Fill in mailbox-obtained fields */
+  boot_info.board_revision = board_rev;
+  boot_info.arm_mem_size = arm_mem;
+
+  /* ----- Boot countdown ----- */
+  uart_puts("\n[BL] Kernel loaded successfully.\n");
+  uart_printf("[BL] Entry point : %p\n",
+              (void *)(uintptr_t)boot_info.kernel_entry_addr);
+
+  for (int i = 3; i > 0; i--) {
+    for (volatile uint32_t d = 0; d < 2000000U; d++)
+      __asm__ volatile("nop");
+  }
+
+  bl_boot_kernel((uintptr_t)boot_info.kernel_entry_addr, &boot_info);
+
+  __builtin_unreachable();
 }
