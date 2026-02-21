@@ -56,6 +56,13 @@ function Ensure-Docker {
 }
 
 # ----------------------------------------------------------------
+# Utility: Ensure Output Directory Exists
+# ----------------------------------------------------------------
+function Ensure-OutputDir {
+    New-Item -ItemType Directory -Path $BIN_DIR, $BUILD_DIR -Force | Out-Null
+}
+
+# ----------------------------------------------------------------
 # Docker Build / Tag
 # ----------------------------------------------------------------
 function Docker-Build {
@@ -305,6 +312,7 @@ function Show-Help {
 # Command Routing
 # ----------------------------------------------------------------
 Ensure-Docker
+Ensure-OutputDir
 Write-Host "Neutron Bootloader - Version $Version"
 
 switch ($Command) {
