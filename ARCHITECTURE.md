@@ -20,7 +20,7 @@ graph TD
     ROOT --> LINKER["linker/"]
     ROOT --> NEUTRON_DIR["neutron/"]
     ROOT --> TEST_KERNEL["test_kernel/"]
-    ROOT --> SCRIPT["build.ps1 / pack_kernel.py / Dockerfile"]
+    ROOT --> SCRIPT["neutron.ps1 / pack_kernel.py / Dockerfile"]
 
     BOOT --> BOOT_S["start.S<br/>Power-on Assembly"]
 
@@ -59,7 +59,7 @@ graph TD
 - **Key Files**:
   - `Makefile` — Build system (bootloader, kernel, SD image, QEMU)
   - `pack_kernel.py` — NKRN kernel image packer (header + CRC32)
-  - `build.ps1` — Docker-based build helper for Windows
+  - `neutron.ps1` — Docker-based CLI for Windows (build, run, emu, shell)
   - `Dockerfile` — Build environment (Ubuntu 24.04, aarch64 toolchain, mtools)
   - `LICENSE` — BSD-3-Clause
 

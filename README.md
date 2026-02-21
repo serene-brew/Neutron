@@ -86,7 +86,7 @@ Neutron/
   test_kernel/       - Minimal test kernel (boot + linker + kernel_main.c)
   Makefile           - Build configuration
   pack_kernel.py     - NKRN kernel image packer (header + CRC32)
-  build.ps1          - Docker-based build helper (Windows)
+  neutron.ps1        - Docker-based CLI for Windows (build, run, emu, shell)
   Dockerfile         - Build environment (Ubuntu, aarch64 toolchain, mtools)
   LICENSE            - BSD-3-Clause
 ```
@@ -161,53 +161,71 @@ make clean      # remove build/ and bin/
 
 Ensure SD image tools are installed (`parted`, `mtools`, `dosfstools`) for `make sd-image` and `make all`.
 
-### Windows (Docker-based build helper)
+### Windows (Docker-based CLI)
 
-On Windows you can build inside a Docker container using **`build.ps1`** (PowerShell). This uses the project’s **Dockerfile** (Ubuntu 24.04, AArch64 toolchain, `parted`, `mtools`, `dosfstools`) so you do not need a native cross-compiler or SD tools on the host.
+On Windows you can build and run Neutron using **`neutron.ps1`** (PowerShell). The script runs Make inside a Docker container (Ubuntu 24.04, AArch64 toolchain, `parted`, `mtools`, `dosfstools`) and can run QEMU on the host or inside the container. You do not need a native cross-compiler or SD tools on the host.
 
 **Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/) (or another Docker engine) and PowerShell.
 
-**One-time setup:** build and tag the image:
+**Usage:** `.\neutron.ps1 <command> [options]`. The Docker image is built automatically when needed (e.g. on first `build` or `run`).
+
+**Build** (default target is `all`):
 
 ```powershell
-.\build.ps1 docker
+.\neutron.ps1 build              # same as: make all
+.\neutron.ps1 build all          # bootloader + kernel + sd.img
+.\neutron.ps1 build bootloader   # only kernel8.img
+.\neutron.ps1 build kernel       # only atom.bin
+.\neutron.ps1 build sd-image    # only sd.img
+.\neutron.ps1 build clean        # remove build artefacts
+.\neutron.ps1 build size         # section sizes
 ```
 
-(This runs `docker build` and tags the image as `neutron-build:latest`.)
-
-**Build targets** (run Make inside the container; artefacts are written into your project directory via a bind mount):
+**Run QEMU on host** (requires `qemu-system-aarch64` on PATH). Builds artefacts if missing; use `--build` to force rebuild:
 
 ```powershell
-.\build.ps1 all          # bootloader + kernel + sd.img
-.\build.ps1 bootloader   # only kernel8.img
-.\build.ps1 kernel      # only atom.bin
-.\build.ps1 sd-image    # only sd.img
-.\build.ps1 clean       # remove build artefacts
-.\build.ps1 size        # section sizes
+.\neutron.ps1 run
+.\neutron.ps1 run --build
 ```
 
-**Build and run QEMU:** build everything in Docker, then run QEMU on the host (requires QEMU and Make installed on Windows, e.g. via MSYS2 or Chocolatey):
+**Run QEMU inside Docker** (no host QEMU needed). Builds artefacts if missing; use `--build` to force rebuild:
 
 ```powershell
-.\build.ps1 qemu
+.\neutron.ps1 emu
+.\neutron.ps1 emu --build
 ```
 
-This is equivalent to `.\build.ps1 all` followed by `make qemu-rpi` (or `mingw32-make qemu-rpi` if you use MinGW Make). The script prefers `make` and falls back to `mingw32-make` when available.
+**Interactive shell** in the build container:
 
-**Summary of `build.ps1` commands:**
+```powershell
+.\neutron.ps1 shell
+```
 
-| Command          | Description                                      |
-|------------------|--------------------------------------------------|
-| `.\build.ps1 docker`       | Build and tag Docker image (first-time setup)   |
-| `.\build.ps1 docker-build` | Build Docker image only                         |
-| `.\build.ps1 tag`          | Tag image as `neutron-build:latest`             |
-| `.\build.ps1 all`          | Run `make all` in container                     |
-| `.\build.ps1 bootloader`  | Run `make bootloader` in container              |
-| `.\build.ps1 kernel`       | Run `make kernel` in container                  |
-| `.\build.ps1 sd-image`    | Run `make sd-image` in container                |
-| `.\build.ps1 clean`       | Run `make clean` in container                   |
-| `.\build.ps1 size`        | Run `make size` in container                    |
-| `.\build.ps1 qemu`        | Run `make all` in container, then QEMU on host |
+**Docker image and custom commands:**
+
+```powershell
+.\neutron.ps1 docker build        # build image only
+.\neutron.ps1 docker tag         # tag image as latest
+.\neutron.ps1 docker bash        # same as shell
+.\neutron.ps1 docker "make clean"   # run arbitrary command in container
+```
+
+**Help:**
+
+```powershell
+.\neutron.ps1 help
+```
+
+**Summary of `neutron.ps1` commands:**
+
+| Command | Description |
+|---------|-------------|
+| `.\neutron.ps1 build` [target] | Build in Docker (default target: all). Builds image if missing. |
+| `.\neutron.ps1 run` [--build] | Run QEMU on host; build first if artefacts missing. |
+| `.\neutron.ps1 emu` [--build] | Run QEMU inside Docker; build first if artefacts missing. |
+| `.\neutron.ps1 shell` | Open interactive bash in container. |
+| `.\neutron.ps1 docker` build, tag, bash, or command | Image build/tag, shell, or run a command in container. |
+| `.\neutron.ps1 help` | Show usage and all commands. |
 
 ---
 
