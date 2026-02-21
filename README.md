@@ -28,6 +28,7 @@ Neutron is a minimal yet functional bootloader that:
 Designed for educational purposes, QEMU simulation (`-machine raspi3b`), and deployment on Raspberry Pi Zero 2W (or Pi 3B) with an SD card.
 
 ---
+>[!NOTE] For Developer Manual and windows build support check out the following documentation: https://neutron-wiki.pages.dev/ 
 
 ## Quick Start
 
@@ -124,23 +125,6 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation.
 - **0x1000** — `boot_info_t` filled by the bootloader (magic, board revision, ARM memory size, kernel load/entry/size, bootloader version string).
 - **0x3F000000** — BCM2837 peripheral base (GPIO, UART0, SDHOST, mailbox, etc.).
 - **0x3F201000** — PL011 UART0 (used for serial console).
-
----
-
-## Kernel Image Format (NKRN)
-
-The bootloader expects a **packed** kernel image (e.g. **ATOM.BIN** on the SD card):
-
-- **Header (64 bytes):** magic `"NKRN"` (0x4E4B524E), version, load address, entry address, payload size, CRC32 of payload, 40-byte name.
-- **Payload:** raw AArch64 binary (e.g. from `objcopy -O binary` of the test kernel).
-
-Use **`pack_kernel.py`** to produce a packed image from a raw binary:
-
-```bash
-python3 pack_kernel.py build/kernel_raw.bin -o bin/atom.bin -n "Neutron Test Kernel"
-```
-
-Default load/entry in the script are **0x200000** to match the test kernel linker script. The Makefile runs this step when building the kernel target.
 
 ---
 
