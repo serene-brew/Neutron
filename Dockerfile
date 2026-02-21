@@ -5,6 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install necessary packages for cross-compilation and development
 RUN apt update && apt install -y \
     build-essential \
+    qemu-system \
     gcc-aarch64-linux-gnu \
     binutils-aarch64-linux-gnu \
     gdb-multiarch \
