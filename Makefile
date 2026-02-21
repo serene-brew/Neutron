@@ -1,226 +1,311 @@
 # =============================================================================
 # Neutron Bootloader - Project Atom
-# Makefile  —  ARMv8 AArch64 bare-metal Bootloader + Test Kernel  /  QEMU -machine virt
+# Makefile  -  Neutron Bootloader + Minimal Test Kernel + SD Image (ARMv8-A)
 #
 # Organization : serene brew
 # Author       : mintRaven-05
 # License      : BSD-3-Clause
 #
-# Install toolchain (once):
-#   Arch   : sudo pacman -S aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils
-#   Fedora : sudo dnf install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-#   Ubuntu : sudo apt install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
-#   ARM    : https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads
-# =============================================================================
+# Target  : Raspberry Pi Zero 2W  (BCM2710, ARMv8 / AArch64)
+# Toolchain: aarch64-linux-gnu-  (or aarch64-none-elf-)
+# QEMU    : qemu-system-aarch64  -machine raspi3b
+# ================================================================
 
-# Auto-detect toolchain prefix
-ifneq ($(shell command -v aarch64-none-elf-as 2>/dev/null),)
-	CROSS := aarch64-none-elf-
-else ifneq ($(shell command -v aarch64-linux-gnu-as 2>/dev/null),)
-	CROSS := aarch64-linux-gnu-
-else ifneq ($(shell command -v aarch64-elf-as 2>/dev/null),)
-	CROSS := aarch64-elf-
-else
-	$(error No AArch64 cross-assembler found.)
-endif
+# ----------------------------------------------------------------
+# Toolchain
+# ----------------------------------------------------------------
+CROSS   ?= aarch64-linux-gnu-
 
 CC      := $(CROSS)gcc
-AS      := $(CROSS)as
-LD      := $(CROSS)gcc
-CPP     := $(CROSS)cpp
+AS      := $(CROSS)gcc
+LD      := $(CROSS)ld
 OBJCOPY := $(CROSS)objcopy
 OBJDUMP := $(CROSS)objdump
 SIZE    := $(CROSS)size
 
-BUILD   := build
+# ----------------------------------------------------------------
+# Directories
+# ----------------------------------------------------------------
+BOOT_DIR    := boot
+DRIVER_DIR  := driver
+NEUTRON_DIR := neutron
+INCLUDE_DIR := include
+LINKER_DIR  := linker
+KERNEL_DIR  := test_kernel
+BUILD_DIR   := build
 
-# ============================================================================
-# BOOTLOADER CONFIGURATION
-# ============================================================================
-BOOTLOADER_SRCS_C := neutron/main.c neutron/bootloader.c driver/uart.c
-BOOTLOADER_SRCS_S := boot/start.S
-BOOTLOADER_LD     := linker/bootloader.ld
+# ----------------------------------------------------------------
+# Bootloader sources
+# ----------------------------------------------------------------
+BL_ASM_SRCS := $(BOOT_DIR)/start.S
 
-# KERNEL CONFIGURATION
-# ============================================================================
-KERNEL_SRCS_C := test_kernel/kernel_main.c driver/uart.c
-KERNEL_SRCS_S := test_kernel/kernel_start.S
-KERNEL_LD     := linker/kernel.ld
+BL_C_SRCS   := $(DRIVER_DIR)/gpio.c        \
+                $(DRIVER_DIR)/uart.c        \
+                $(DRIVER_DIR)/mbox.c        \
+                $(DRIVER_DIR)/sdcard.c      \
+                $(DRIVER_DIR)/fat32.c       \
+                $(NEUTRON_DIR)/bootloader.c \
+                $(NEUTRON_DIR)/main.c
 
-CPU        := cortex-a53
-ARCH_FLAGS := -mcpu=$(CPU)
+BL_ASM_OBJS := $(patsubst %.S, $(BUILD_DIR)/%.o, $(BL_ASM_SRCS))
+BL_C_OBJS   := $(patsubst %.c, $(BUILD_DIR)/%.o, $(BL_C_SRCS))
+BL_OBJS     := $(BL_ASM_OBJS) $(BL_C_OBJS)
 
-CFLAGS := $(ARCH_FLAGS) -std=gnu11 -O1 -Wall -Wextra \
-	      -ffreestanding -fno-builtin -fno-stack-protector \
-	      -fno-pie -fno-pic -nostdlib -I include
+# ----------------------------------------------------------------
+# Kernel sources
+# ----------------------------------------------------------------
+K_ASM_SRCS  := $(KERNEL_DIR)/boot/kernel_start.S
+K_C_SRCS    := $(KERNEL_DIR)/kernel_main.c
 
-CPPFLAGS := -E -x assembler-with-cpp -D__ASSEMBLER__ -I include
+K_ASM_OBJS  := $(patsubst %.S, $(BUILD_DIR)/%.o, $(K_ASM_SRCS))
+K_C_OBJS    := $(patsubst %.c, $(BUILD_DIR)/%.o, $(K_C_SRCS))
+K_OBJS      := $(K_ASM_OBJS) $(K_C_OBJS)
 
-ASFLAGS  := $(ARCH_FLAGS) -g
+# ----------------------------------------------------------------
+# Output artefacts
+# ----------------------------------------------------------------
+BL_ELF      := $(BUILD_DIR)/neutron.elf
+BL_IMG      := kernel8.img
 
-# ============================================================================
-# BOOTLOADER LINKER FLAGS
-# ============================================================================
-BOOTLOADER_LDFLAGS := -nostdlib $(ARCH_FLAGS)          \
-	                    -Wl,--no-dynamic-linker          \
-	                    -Wl,-T,$(BOOTLOADER_LD)          \
-	                    -Wl,-Map,$(BUILD)/bootloader.map \
-	                    -lgcc
+K_RAW_ELF   := $(BUILD_DIR)/kernel_raw.elf
+K_RAW_BIN   := $(BUILD_DIR)/kernel_raw.bin
+K_BIN       := atom.bin
 
-# ============================================================================
-# KERNEL LINKER FLAGS
-# ============================================================================
-KERNEL_LDFLAGS := -nostdlib $(ARCH_FLAGS)          \
-	               -Wl,--no-dynamic-linker          \
-	               -Wl,-T,$(KERNEL_LD)              \
-	               -Wl,-Map,$(BUILD)/kernel.map     \
-	               -lgcc
+SD_IMG      := sd.img
+SD_SIZE_MB  := 64
 
-# ============================================================================
-# OBJECT FILES
-# ============================================================================
-BOOTLOADER_OBJS_C := $(patsubst %.c, $(BUILD)/%.o, $(BOOTLOADER_SRCS_C))
-BOOTLOADER_OBJS_S := $(patsubst %.S, $(BUILD)/%.o, $(BOOTLOADER_SRCS_S))
-BOOTLOADER_OBJS   := $(BOOTLOADER_OBJS_S) $(BOOTLOADER_OBJS_C)
+# ----------------------------------------------------------------
+# Compiler / Assembler flags
+# ----------------------------------------------------------------
+ARCH_FLAGS  := -march=armv8-a           \
+               -mtune=cortex-a53        \
+               -mgeneral-regs-only      \
+               -mlittle-endian
 
-KERNEL_OBJS_C := $(patsubst %.c, $(BUILD)/%.o, $(KERNEL_SRCS_C))
-KERNEL_OBJS_S := $(patsubst %.S, $(BUILD)/%.o, $(KERNEL_SRCS_S))
-KERNEL_OBJS   := $(KERNEL_OBJS_S) $(KERNEL_OBJS_C)
+CFLAGS      := $(ARCH_FLAGS)            \
+               -ffreestanding           \
+               -fno-builtin             \
+               -fno-stack-protector     \
+               -fno-pie                 \
+               -fno-pic                 \
+               -nostdlib                \
+               -nostdinc                \
+               -std=gnu11               \
+               -Wall                    \
+               -Wextra                  \
+               -Werror                  \
+               -O2                      \
+               -g                       \
+               -I$(INCLUDE_DIR)         \
+               -isystem $(shell $(CC) -print-file-name=include)
 
-# ============================================================================
-# OUTPUT FILES
-# ============================================================================
-BOOTLOADER_ELF := $(BUILD)/bootloader.elf
-BOOTLOADER_BIN := $(BUILD)/bootloader.bin
-KERNEL_ELF     := $(BUILD)/kernel.elf
-KERNEL_BIN     := $(BUILD)/kernel.bin
+ASFLAGS     := $(ARCH_FLAGS)            \
+               -ffreestanding           \
+               -nostdlib                \
+               -I$(INCLUDE_DIR)         \
+               -D__ASSEMBLER__
 
-.PHONY: all bootloader kernel qemu qemu-kernel qemu-gui dump dump-kernel size size-kernel clean
+BL_LDFLAGS  := -nostdlib                \
+               -T $(LINKER_DIR)/bootloader.ld   \
+               -Map=$(BUILD_DIR)/neutron.map    \
+               --no-dynamic-linker              \
+               --no-warn-rwx-segments
 
-# ============================================================================
-# DEFAULT TARGET: Build both bootloader and kernel
-# ============================================================================
-all: bootloader kernel
+K_LDFLAGS   := -nostdlib                \
+               -T $(KERNEL_DIR)/linker/kernel.ld \
+               -Map=$(BUILD_DIR)/kernel.map      \
+               --no-dynamic-linker
+
+# ----------------------------------------------------------------
+# QEMU  - kernel8.img boots from -kernel, sd.img is the SD card
+# ----------------------------------------------------------------
+QEMU            := qemu-system-aarch64
+QEMU_MACHINE    := raspi3b
+QEMU_CPU        := cortex-a53
+QEMU_MEM        := 1G
+QEMU_GDB_PORT   := 1234
+
+QEMU_FLAGS  := -machine $(QEMU_MACHINE) \
+               -cpu $(QEMU_CPU)         \
+               -m $(QEMU_MEM)           \
+               -kernel $(BL_IMG)        \
+               -drive file=$(SD_IMG),if=sd,format=raw \
+							 -serial mon:stdio            \
+               -display none
+
+# ----------------------------------------------------------------
+# Phony targets
+# ----------------------------------------------------------------
+.PHONY: all bootloader kernel sd-image clean \
+        qemu-rpi qemu-rpi-debug disasm size help
+
+# ----------------------------------------------------------------
+# all  -  build bootloader, kernel, and sd image
+# ----------------------------------------------------------------
+all: bootloader kernel sd-image
 	@echo ""
-	@echo "=== BOOTLOADER ==="
-	@$(SIZE) $(BOOTLOADER_ELF)
-	@echo ""
-	@echo "=== KERNEL ==="
-	@$(SIZE) $(KERNEL_ELF)
-	@echo ""
-	@echo "Build complete!"
-	@echo "  Bootloader ELF : $(BOOTLOADER_ELF)"
-	@echo "  Kernel ELF     : $(KERNEL_ELF)"
-	@echo ""
-	@echo "Run options:"
-	@echo "  make qemu          # Run bootloader only"
-	@echo "  make qemu-kernel   # Run bootloader + kernel"
-	@echo "  make dump          # Disassemble bootloader"
-	@echo "  make dump-kernel   # Disassemble kernel"
+	@echo "Neutron build complete!"
+	@echo "Bootloader : kernel8.img"
+	@echo "Kernel     : atom.bin (inside sd.img)"
+	@echo "Run        : make qemu-rpi"
 
-# ============================================================================
-# BOOTLOADER TARGETS
-# ============================================================================
-bootloader: $(BOOTLOADER_ELF) $(BOOTLOADER_BIN)
+# ----------------------------------------------------------------
+# bootloader  -  kernel8.img
+# ----------------------------------------------------------------
+bootloader: $(BL_IMG)
 
-$(BOOTLOADER_ELF): $(BOOTLOADER_OBJS) $(BOOTLOADER_LD)
+$(BL_ELF): $(BL_OBJS) $(LINKER_DIR)/bootloader.ld
 	@echo "[LD]  $@"
-	@$(LD) $(BOOTLOADER_OBJS) $(BOOTLOADER_LDFLAGS) -o $@
+	@$(LD) $(BL_LDFLAGS) -o $@ $(BL_OBJS)
+	@$(SIZE) $@
 
-$(BOOTLOADER_BIN): $(BOOTLOADER_ELF)
+$(BL_IMG): $(BL_ELF)
+	@echo "[IMG] $@"
+	@$(OBJCOPY) -O binary $< $@
+
+# ----------------------------------------------------------------
+# kernel  -  atom.bin (NKRN-packed raw binary)
+# ----------------------------------------------------------------
+kernel: $(K_BIN)
+
+$(K_RAW_ELF): $(K_OBJS) $(KERNEL_DIR)/linker/kernel.ld
+	@echo "[LD]  $@"
+	@$(LD) $(K_LDFLAGS) -o $@ $(K_OBJS)
+	@$(SIZE) $@
+
+$(K_RAW_BIN): $(K_RAW_ELF)
 	@echo "[BIN] $@"
 	@$(OBJCOPY) -O binary $< $@
 
-# ============================================================================
-# KERNEL TARGETS
-# ============================================================================
-kernel: $(KERNEL_ELF) $(KERNEL_BIN)
+$(K_BIN): $(K_RAW_BIN)
+	@echo "[PKG] $@ (packing NKRN header)"
+	@python3 pack_kernel.py $< -o $@ -n "Neutron Test Kernel"
 
-$(KERNEL_ELF): $(KERNEL_OBJS) $(KERNEL_LD)
-	@echo "[LD]  $@"
-	@$(LD) $(KERNEL_OBJS) $(KERNEL_LDFLAGS) -o $@
+# ----------------------------------------------------------------
+# sd-image  -  create sd.img with FAT32 partition + atom.bin
+#
+# Tools required: dd  parted  mkfs.vfat  mcopy (mtools)
+#   sudo apt install parted mtools dosfstools
+# ----------------------------------------------------------------
+sd-image: $(SD_IMG)
 
-$(KERNEL_BIN): $(KERNEL_ELF)
-	@echo "[BIN] $@"
-	@$(OBJCOPY) -O binary $< $@
+$(SD_IMG): $(K_BIN)
+	@echo "[SD]  Creating $(SD_SIZE_MB) MiB SD image: $@"
+	@# Create blank image
+	dd if=/dev/zero of=$@ bs=1M count=$(SD_SIZE_MB) status=none
 
-# ============================================================================
-# COMPILATION RULES
-# ============================================================================
-$(BUILD)/%.o: %.c
+	@# Partition: MBR + one primary FAT32 partition (1MiB offset for alignment)
+	@echo "[SD]  Writing MBR partition table..."
+	parted -s $@                    \
+	    mklabel msdos               \
+	    mkpart primary fat32 1MiB 100%
+
+	@# Format the partition in-place using mformat (no loopback needed)
+	@# Partition starts at sector 2048 (1MiB / 512B)
+	@echo "[SD]  Formatting FAT32..."
+	mformat -i $@@@1M -F -v NEUTRON ::
+
+	@# Copy atom.bin into the root of the FAT32 partition
+	@echo "[SD]  Copying $(K_BIN) to SD image root..."
+	mcopy -i $@@@1M $(K_BIN) ::ATOM.BIN
+
+	@echo "[SD]  $(SD_IMG) ready."
+	@echo "[SD]  Contents:"
+	@mdir -i $@@@1M ::
+
+# ----------------------------------------------------------------
+# Compile C  (bootloader uses -I include/; kernel is self-contained)
+# ----------------------------------------------------------------
+$(BUILD_DIR)/$(KERNEL_DIR)/%.o: $(KERNEL_DIR)/%.c
 	@mkdir -p $(dir $@)
 	@echo "[CC]  $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
+	@$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD)/%.o: %.S
+$(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
-	@echo "[CPP] $<"
-	@$(CPP) $(CPPFLAGS) $< -o $(BUILD)/$*.s
-	@echo "[AS]  $(BUILD)/$*.s"
-	@$(AS) $(ASFLAGS) $(BUILD)/$*.s -o $@
+	@echo "[CC]  $<"
+	@$(CC) $(CFLAGS) -c -o $@ $<
 
-# ============================================================================
-# QEMU TARGETS
-# ============================================================================
+# ----------------------------------------------------------------
+# Assemble .S
+# ----------------------------------------------------------------
+$(BUILD_DIR)/$(KERNEL_DIR)/%.o: $(KERNEL_DIR)/%.S
+	@mkdir -p $(dir $@)
+	@echo "[AS]  $<"
+	@$(AS) $(ASFLAGS) -c -o $@ $<
 
-# Test bootloader only (loads at 0x40000000)
-qemu: $(BOOTLOADER_ELF)
-	@echo "[QEMU] Bootloader test - Ctrl-A X to quit"
-	qemu-system-aarch64       \
-	    -machine virt         \
-	    -cpu cortex-a53       \
-	    -m 256M               \
-	    -nographic            \
-	    -kernel $(BOOTLOADER_ELF) \
-	    -serial mon:stdio
+$(BUILD_DIR)/%.o: %.S
+	@mkdir -p $(dir $@)
+	@echo "[AS]  $<"
+	@$(AS) $(ASFLAGS) -c -o $@ $<
 
-# Test both bootloader and kernel together
-qemu-kernel: $(BOOTLOADER_ELF) $(KERNEL_ELF)
-	@echo "[QEMU] Bootloader + Kernel test - Ctrl-A X to quit"
-	qemu-system-aarch64                          \
-	    -machine virt                            \
-	    -cpu cortex-a53                          \
-	    -m 256M                                  \
-	    -nographic                               \
-	    -kernel $(BOOTLOADER_ELF)                \
-	    -device loader,file=$(KERNEL_BIN),addr=0x40400000 \
-	    -serial mon:stdio
+# ----------------------------------------------------------------
+# qemu-rpi  -  bootloader reads atom.bin from sd.img
+# ----------------------------------------------------------------
+qemu-rpi: all
+	@echo ""
+	@echo "[QEMU] Booting: kernel8.img  reading atom.bin from sd.img"
+	@echo "[QEMU] Press Ctrl+A then X to quit"
+	@echo ""
+	$(QEMU) $(QEMU_FLAGS)
 
-# GUI mode for bootloader
-qemu-gui: $(BOOTLOADER_ELF)
-	@echo "[QEMU] GUI mode - Bootloader"
-	qemu-system-aarch64       \
-	    -machine virt         \
-	    -cpu cortex-a53       \
-	    -m 256M               \
-	    -kernel $(BOOTLOADER_ELF) \
-	    -device ramfb         \
-	    -serial stdio         \
-	    -display gtk
+# ----------------------------------------------------------------
+# qemu-rpi-debug  -  GDB stub on :$(QEMU_GDB_PORT)
+# ----------------------------------------------------------------
+qemu-rpi-debug: all
+	@echo "[QEMU] GDB stub on port $(QEMU_GDB_PORT)"
+	@echo "[GDB]  aarch64-linux-gnu-gdb $(BL_ELF)"
+	@echo "       (gdb) target remote :$(QEMU_GDB_PORT)"
+	$(QEMU) $(QEMU_FLAGS)           \
+	    -gdb tcp::$(QEMU_GDB_PORT)  \
+	    -S
 
-# ============================================================================
-# DEBUG TARGETS
-# ============================================================================
+# ----------------------------------------------------------------
+# disasm
+# ----------------------------------------------------------------
+disasm: $(BL_ELF) $(K_RAW_ELF)
+	@$(OBJDUMP) -d -S --demangle $(BL_ELF)    > $(BUILD_DIR)/neutron.lst
+	@$(OBJDUMP) -d -S --demangle $(K_RAW_ELF) > $(BUILD_DIR)/kernel.lst
+	@echo "Wrote $(BUILD_DIR)/neutron.lst and $(BUILD_DIR)/kernel.lst"
 
-# Disassemble bootloader
-dump: $(BOOTLOADER_ELF)
-	@$(OBJDUMP) -d -S $(BOOTLOADER_ELF) | less
+# ----------------------------------------------------------------
+# size
+# ----------------------------------------------------------------
+size: $(BL_ELF) $(K_RAW_ELF)
+	@echo "--- Bootloader ---"
+	@$(SIZE) -A $(BL_ELF)
+	@echo "--- Kernel ---"
+	@$(SIZE) -A $(K_RAW_ELF)
 
-# Disassemble kernel
-dump-kernel: $(KERNEL_ELF)
-	@$(OBJDUMP) -d -S $(KERNEL_ELF) | less
-
-# Show bootloader size
-size: $(BOOTLOADER_ELF)
-	@$(SIZE) $(BOOTLOADER_ELF)
-
-# Show kernel size
-size-kernel: $(KERNEL_ELF)
-	@$(SIZE) $(KERNEL_ELF)
-
-# ============================================================================
-# CLEAN TARGET
-# ============================================================================
+# ----------------------------------------------------------------
+# clean
+# ----------------------------------------------------------------
 clean:
-	@rm -rf $(BUILD)
-	@echo "Cleaned all build artifacts."
+	@echo "[CLN] Removing build artefacts..."
+	@rm -rf $(BUILD_DIR)
+	@rm -f  $(BL_IMG) $(K_BIN) $(SD_IMG)
+	@echo "Clean done."
+
+# ----------------------------------------------------------------
+# help
+# ----------------------------------------------------------------
+help:
+	@echo ""
+	@echo "Neutron Bootloader - available targets:"
+	@echo ""
+	@echo "  make all              Build bootloader + kernel + sd.img (default)"
+	@echo "  make bootloader       Build kernel8.img only"
+	@echo "  make kernel           Build atom.bin only"
+	@echo "  make sd-image         Create sd.img FAT32 disk with atom.bin"
+	@echo "  make qemu-rpi         Boot in QEMU (SD card path)"
+	@echo "  make qemu-rpi-debug   Boot with GDB stub on :$(QEMU_GDB_PORT)"
+	@echo "  make disasm           Annotated disassembly for both"
+	@echo "  make size             Section sizes for both"
+	@echo "  make clean            Remove all build artefacts"
+	@echo ""
+	@echo "  SD image tools needed:"
+	@echo "    sudo apt install parted mtools dosfstools"
+	@echo ""
+	@echo "Toolchain: CROSS=$(CROSS)"
+	@echo "  Override: make CROSS=aarch64-none-elf- all"
+	@echo ""
