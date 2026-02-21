@@ -11,61 +11,70 @@
  * Kernel        : 0x40200000  (loaded by bootloader)
  * ============================================================================= */
 
-BOOTLOADER_LOAD_ADDR = 0x40000000;
-STACK_SIZE       = 0x10000;      /* 64 KiB */
-
 ENTRY(_start)
 
-MEMORY {
-    RAM (rwx) : ORIGIN = BOOTLOADER_LOAD_ADDR, LENGTH = 2M
-}
+SECTIONS
+{
+    /* ----------------------------------------------------------------
+     * Bootloader text + data start at 0x80000
+     * (where the GPU places kernel8.img)
+     * ---------------------------------------------------------------- */
+    . = 0x80000;
 
-PHDRS {
-    text PT_LOAD FLAGS(5);   /* R + X (read + execute) */
-    data PT_LOAD FLAGS(6);   /* R + W (read + write) */
-    bss  PT_LOAD FLAGS(6);   /* R + W (read + write) */
-}
+    /* ---- .text.boot must be first (contains _start) ---- */
+    .text.boot : {
+        KEEP(*(.text.boot))
+    }
 
-SECTIONS {
-    . = BOOTLOADER_LOAD_ADDR;
-    _bootloader_start = .;
+    /* ---- Exception vector table - must be 0x800-aligned ---- */
+    . = ALIGN(0x800);
+    .vectors : {
+        KEEP(*(.vectors))
+    }
 
+    /* ---- Regular code ---- */
+    . = ALIGN(8);
     .text : {
-        *(.text.boot)       /* _start must be first */
-        *(.text .text.*)
-        *(.rodata .rodata.*)
-        . = ALIGN(8);
-    } > RAM : text
+        *(.text)
+        *(.text.*)
+    }
 
+    /* ---- Read-only data ---- */
     . = ALIGN(8);
-    _data_load_start = LOADADDR(.data);
+    .rodata : {
+        *(.rodata)
+        *(.rodata.*)
+    }
 
+    /* ---- Initialised data ---- */
+    . = ALIGN(8);
     .data : {
-        _data_start = .;
-        *(.data .data.*)
-        . = ALIGN(8);
-        _data_end = .;
-    } > RAM : data
+        *(.data)
+        *(.data.*)
+    }
 
+    /* ---- BSS (zero-initialised) ---- */
     . = ALIGN(8);
-    .bss (NOLOAD) : {
-        _bss_start = .;
-        *(.bss .bss.*)
+    __bss_start = .;
+    .bss : {
+        *(.bss)
+        *(.bss.*)
         *(COMMON)
-        . = ALIGN(8);
-        _bss_end = .;
-    } > RAM : bss
+    }
+    . = ALIGN(8);
+    __bss_end = .;
 
-    . = ALIGN(16);
-    .stack (NOLOAD) : {
-        _stack_bottom = .;
-        . += STACK_SIZE;
-        _stack_top = .;
-    } > RAM : bss
-
-    _bootloader_end = .;
-
+    /* ---- Discard unnecessary sections ---- */
     /DISCARD/ : {
-        *(.note.*) *(.comment) *(.gnu.*) *(.ARM.exidx*) *(.ARM.extab*)
+        *(.comment)
+        *(.note*)
+        *(.eh_frame*)
+        *(.gnu.attributes)
+        *(.ARM.attributes)
     }
 }
+
+/* ----------------------------------------------------------------
+ * Exported symbols used in start.S
+ * ---------------------------------------------------------------- */
+PROVIDE(_stack_top = 0x80000);
