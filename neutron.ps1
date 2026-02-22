@@ -251,7 +251,7 @@ function Neutron-RunDocker($ForceBuild) {
     docker run --rm -it `
         --mount type=bind,src="$ProjectPath",dst=/Neutron `
         $ImageLatest `
-        bash -c "qemu-system-aarch64 -machine raspi3b -cpu cortex-a53 -m 1G -kernel bin/kernel8.img -drive file=bin/sd.img,if=sd,format=raw -serial mon:stdio -display none"
+        bash -c "make qemu-rpi"
 
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
