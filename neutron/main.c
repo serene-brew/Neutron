@@ -18,6 +18,7 @@
  */
 
 #include "bootloader.h"
+#include "config.h"
 #include "fat32.h"
 #include "mbox.h"
 #include "platform.h"
@@ -25,27 +26,24 @@
 #include "uart.h"
 #include <stdint.h>
 
-/* ----------------------------------------------------------------
- * ANSI colour helpers
- * ---------------------------------------------------------------- */
-#define ANSI_RESET "\x1b[0m"
-#define ANSI_BOLD "\x1b[1m"
-#define ANSI_GREEN "\x1b[32m"
-#define ANSI_CYAN "\x1b[36m"
-#define ANSI_YELLOW "\x1b[33m"
-#define ANSI_RED "\x1b[31m"
+#if CFG_EMBED_KERNEL
+/* Embedded packed kernel image (bin/atom.bin) when EMBED_KERNEL=1.
+ * Generated via objcopy -I binary -O elf64-littleaarch64 -B aarch64. */
+extern const unsigned char _binary_bin_atom_bin_start[];
+extern const unsigned char _binary_bin_atom_bin_end[];
+#endif
 
 /* ----------------------------------------------------------------
  * Banner
  * ---------------------------------------------------------------- */
 static void print_banner(void) {
-  uart_puts(ANSI_BOLD ANSI_CYAN);
+  uart_puts(CFG_ANSI_BOLD CFG_ANSI_CYAN);
   uart_puts("\n");
 
-  uart_puts(ANSI_RESET);
-  uart_puts(ANSI_GREEN);
-  uart_puts("       ~ Neutron Bootloader  v1.0.1\n");
-  uart_puts(ANSI_RESET);
+  uart_puts(CFG_ANSI_RESET);
+  uart_puts(CFG_ANSI_GREEN);
+  uart_puts("       ~ "); uart_puts(CFG_BANNER_TEXT); uart_puts("\n");
+  uart_puts(CFG_ANSI_RESET);
   uart_puts(
       "------------------------------------------------------------------\n");
 }
@@ -80,7 +78,7 @@ void neutron_main(void) {
   uint32_t el = read_exception_level();
   uint64_t mpidr = read_mpidr();
 
-  uart_printf(ANSI_BOLD "[CPU] Exception Level : EL%d\n" ANSI_RESET, el);
+  uart_printf(CFG_ANSI_BOLD "[CPU] Exception Level : EL%d\n" CFG_ANSI_RESET, el);
   uart_printf("[CPU] MPIDR           : %x\n", mpidr);
   uart_printf("[CPU] Core ID         : %d\n", (int)(mpidr & 0xFF));
 
@@ -106,12 +104,20 @@ void neutron_main(void) {
     uart_puts("[BL]   Board          : QEMU simulated (raspi3b)\n");
   }
 
+  int rc = 0;
+  uintptr_t nkrn_src = 0;
+
+#if CFG_EMBED_KERNEL
+  /* ----- Embedded kernel path ----- */
+  uart_puts("\n[BL] Using embedded kernel image...\n");
+  nkrn_src = (uintptr_t)_binary_bin_atom_bin_start;
+#else
   /* ----- Initialise SD card ----- */
   uart_puts("\n[BL] Initialising SD card...\n");
-  int rc = sdcard_init();
+  rc = sdcard_init();
   if (rc != SD_OK) {
     uart_printf(
-        ANSI_RED "[BL] FATAL: SD card init failed (error %d)\n" ANSI_RESET, rc);
+        CFG_ANSI_RED "[BL] FATAL: SD card init failed (error %d)\n" CFG_ANSI_RESET, rc);
     uart_puts("[BL] System halted.\n");
     while (1)
       __asm__ volatile("wfe");
@@ -122,7 +128,7 @@ void neutron_main(void) {
   rc = fat32_mount();
   if (rc != FAT32_OK) {
     uart_printf(
-        ANSI_RED "[BL] FATAL: FAT32 mount failed (error %d)\n" ANSI_RESET, rc);
+        CFG_ANSI_RED "[BL] FATAL: FAT32 mount failed (error %d)\n" CFG_ANSI_RESET, rc);
     uart_puts("[BL] System halted.\n");
     while (1)
       __asm__ volatile("wfe");
@@ -132,31 +138,34 @@ void neutron_main(void) {
   uart_puts("\n[BL] Loading kernel.bin from SD card...\n");
 
   uint32_t bytes_loaded = 0;
-  rc = fat32_read_file("ATOM.BIN", (void *)(uintptr_t)KERNEL_LOAD_ADDR,
-                       KERNEL_MAX_SIZE, &bytes_loaded);
+  rc = fat32_read_file(CFG_KERNEL_FILENAME, (void *)(uintptr_t)CFG_KERNEL_STAGING_ADDR,
+                       CFG_KERNEL_MAX_SIZE, &bytes_loaded);
 
   if (rc != FAT32_OK) {
-    uart_printf(ANSI_RED
+    uart_printf(CFG_ANSI_RED
                 "[BL] FATAL: atom.bin not found on SD card (error %d)\n"
                 "[BL]        Ensure kernel.bin is in the FAT32 root "
-                "directory.\n" ANSI_RESET,
+                "directory.\n" CFG_ANSI_RESET,
                 rc);
     uart_puts("[BL] System halted.\n");
     while (1)
       __asm__ volatile("wfe");
   }
 
-  uart_printf(ANSI_YELLOW "[BL] atom.bin loaded: %u bytes at 0x%X\n" ANSI_RESET,
-              bytes_loaded, (uint32_t)KERNEL_LOAD_ADDR);
+  uart_printf(CFG_ANSI_YELLOW "[BL] atom.bin loaded: %u bytes at 0x%X\n" CFG_ANSI_RESET,
+              bytes_loaded, (uint32_t)CFG_KERNEL_STAGING_ADDR);
+
+  nkrn_src = (uintptr_t)CFG_KERNEL_STAGING_ADDR;
+#endif
 
   /* ----- Validate NKRN magic ----- */
-  const uint32_t *probe = (const uint32_t *)(uintptr_t)KERNEL_LOAD_ADDR;
+  const uint32_t *probe = (const uint32_t *)nkrn_src;
   if (*probe != KERNEL_MAGIC) {
     uart_printf(
-        ANSI_RED
+        CFG_ANSI_RED
         "[BL] FATAL: bad magic at 0x%X - got 0x%X, expected 0x%X\n"
-        "[BL]        Is kernel.bin packed with pack_kernel.py?\n" ANSI_RESET,
-        (uint32_t)KERNEL_LOAD_ADDR, *probe, KERNEL_MAGIC);
+        "[BL]        Is kernel.bin packed with pack_kernel.py?\n" CFG_ANSI_RESET,
+        (uint32_t)nkrn_src, *probe, KERNEL_MAGIC);
     uart_puts("[BL] System halted.\n");
     while (1)
       __asm__ volatile("wfe");
@@ -166,11 +175,11 @@ void neutron_main(void) {
   uart_puts("\n[BL] Validating and loading kernel image...\n");
 
   boot_info_t boot_info;
-  rc = bl_load_kernel(KERNEL_LOAD_ADDR, &boot_info);
+  rc = bl_load_kernel(nkrn_src, &boot_info);
 
   if (rc != BL_OK) {
-    uart_printf(ANSI_RED
-                "[BL] FATAL: kernel validation failed (error %d)\n" ANSI_RESET,
+    uart_printf(CFG_ANSI_RED
+                "[BL] FATAL: kernel validation failed (error %d)\n" CFG_ANSI_RESET,
                 rc);
     uart_puts("[BL] System halted.\n");
     while (1)

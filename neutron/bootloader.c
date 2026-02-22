@@ -18,6 +18,7 @@
  * ================================================================ */
 
 #include "bootloader.h"
+#include "config.h"
 #include "platform.h"
 #include "uart.h"
 #include <stddef.h>
@@ -107,7 +108,7 @@ int bl_load_kernel(uintptr_t src, boot_info_t *out_info) {
   uart_printf("[BL] Payload size   : %u bytes\n", hdr->image_size);
 
   /* 2. Size sanity */
-  if (hdr->image_size == 0 || hdr->image_size > KERNEL_MAX_SIZE) {
+  if (hdr->image_size == 0 || hdr->image_size > CFG_KERNEL_MAX_SIZE) {
     uart_printf("[BL] ERROR: image size %u out of range\n", hdr->image_size);
     return BL_ERR_TOO_LARGE;
   }
@@ -139,9 +140,16 @@ int bl_load_kernel(uintptr_t src, boot_info_t *out_info) {
   info->kernel_entry_addr = hdr->entry_addr;
   info->kernel_size = hdr->image_size;
 
-  /* Copy version string */
-  const char ver[] = "Neutron-1.0";
-  bl_memcpy(info->bootloader_version, ver, sizeof(ver));
+  /* Copy version string (at most 15 chars + NUL to fit bootloader_version[16]) */
+  {
+    const char *ver = CFG_BOOTLOADER_VERSION;
+    size_t max_len = sizeof(info->bootloader_version) - 1u;
+    size_t n = 0;
+    while (n < max_len && ver[n] != '\0')
+      n++;
+    bl_memcpy(info->bootloader_version, (const void *)ver, n);
+    info->bootloader_version[n] = '\0';
+  }
 
   if (out_info)
     bl_memcpy(out_info, info, sizeof(*info));
