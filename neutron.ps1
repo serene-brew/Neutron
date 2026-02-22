@@ -33,7 +33,7 @@ if (-not $VersionLine) {
 
 # Extract value after "VERSION:"
 $Version = ($VersionLine -replace '^VERSION:\s*', '').Trim()
-# Eemove leading 'v' if you want
+# Remove leading 'v' if you want
 $Version = $Version.TrimStart('v')
 
 # ----------------------------------------------------------------
@@ -44,6 +44,7 @@ $ImageVersion = "neutron-build:$Version"
 $ImageLatest  = "neutron-build:latest"
 $QEMU         = "qemu-system-aarch64"
 $BIN_DIR      = Join-Path $ProjectPath "bin"
+$BUILD_DIR    = Join-Path $ProjectPath "build"
 
 # ----------------------------------------------------------------
 # Utility: Ensure Docker Exists
@@ -81,21 +82,29 @@ function Docker-Tag {
 # Utility: Ensure Docker Image Exists
 # ----------------------------------------------------------------
 function Ensure-Image {
-    Write-Host "[DOCKER] Checking image: $ImageLatest"
-    $exists = docker images -q $ImageLatest
+    Write-Host "[DOCKER] Verifying image state..."
+    $latestId  = docker image inspect $ImageLatest  --format '{{.Id}}' 2>$null
+    $versionId = docker image inspect $ImageVersion --format '{{.Id}}' 2>$null
 
-    if (-not $exists) {
-        Write-Host "[DOCKER] Image not found. Building..."
+    if (-not $versionId) {
+        Write-Host "[DOCKER] Version tag not found. Building image..."
         Docker-Build
         Docker-Tag
-        Write-Host "[DOCKER] Image built successfully."
+    }
+    elseif (-not $latestId) {
+        Write-Host "[DOCKER] 'latest' tag missing. Synchronizing..."
+        docker tag $ImageVersion $ImageLatest
+    }
+    elseif ($latestId -ne $versionId) {
+        Write-Host "[DOCKER] Tag mismatch detected. Synchronizing..."
+        docker tag $ImageVersion $ImageLatest
     }
     else {
-        Write-Host "[DOCKER] Image found."
+        Write-Host "[DOCKER] Image verified ($ImageVersion)."
     }
 
-    # Always print final image details
-    Write-Host "[DOCKER] Image id: $(docker images $ImageLatest -q)"
+    $finalId = docker image inspect $ImageLatest --format '{{.Id}}'
+    Write-Host "[DOCKER] Active image ID: $finalId"
 }
 
 # ----------------------------------------------------------------
@@ -215,17 +224,45 @@ function Neutron-RunHost($ForceBuild) {
 
     $SD_IMG = Join-Path $BIN_DIR "sd.img"
     $BL_IMG = Join-Path $BIN_DIR "kernel8.img"
+    $ConfigFile = Join-Path (Get-Location) "build.mk"
 
-    Write-Host "[QEMU] Launching on host..."
+    if (-not (Test-Path $ConfigFile)) {
+        Write-Error "[CONFIG] build.mk not found."
+        exit 1
+    }
 
-    & $QEMU `
-        -machine raspi3b `
-        -cpu cortex-a53 `
-        -m 1G `
-        -kernel $BL_IMG `
-        -drive file=$SD_IMG,if=sd,format=raw `
-        -serial mon:stdio `
-        -display none
+    $EmbedKernelLine = Get-Content $ConfigFile |
+        Where-Object { $_ -match '^\s*EMBED_KERNEL\s*:=' }
+
+    if (-not $EmbedKernelLine) {
+        Write-Error "[CONFIG] EMBED_KERNEL entry missing in build.mk."
+        exit 1
+    }
+
+    $EmbedKernelValue = ($EmbedKernelLine -replace '^\s*EMBED_KERNEL\s*:=\s*', '').Trim()
+
+    Write-Host "[QEMU] Launching Raspberry Pi 3 (Cortex-A53)..."
+
+    if  ($EmbedKernelValue -eq "0") {
+        Write-Host "[QEMU] Running with SD card (kernel loaded from SD)..."
+        & $QEMU `
+            -machine raspi3b `
+            -cpu cortex-a53 `
+            -m 1G `
+            -kernel $BL_IMG `
+            -drive file=$SD_IMG,if=sd,format=raw `
+            -serial mon:stdio `
+            -display none
+    } else {
+        Write-Host "[QEMU] Running with embedded kernel (no SD card)..."
+        & $QEMU `
+            -machine raspi3b `
+            -cpu cortex-a53 `
+            -m 1G `
+            -kernel $BL_IMG `
+            -serial mon:stdio `
+            -display none
+    }
 
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
@@ -251,7 +288,7 @@ function Neutron-RunDocker($ForceBuild) {
     docker run --rm -it `
         --mount type=bind,src="$ProjectPath",dst=/Neutron `
         $ImageLatest `
-        bash -c "make qemu-rpi"
+        bash -c "make qemu-rpi-no-build"
 
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }

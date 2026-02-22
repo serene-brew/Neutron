@@ -68,18 +68,32 @@ docker_tag() {
 # Ensure Docker Image Exists
 # ----------------------------------------------------------------
 ensure_image() {
-  echo "[DOCKER] Checking image: $ImageLatest"
+  echo "[DOCKER] Verifying image state..."
+  latest_id=$(docker image inspect "$ImageLatest" --format '{{.Id}}' 2>/dev/null || true)
+  version_id=$(docker image inspect "$ImageVersion" --format '{{.Id}}' 2>/dev/null || true)
 
-  if ! docker image inspect "$ImageLatest" >/dev/null 2>&1; then
-    echo "[DOCKER] Image not found. Building..."
+  # Case 1: Version tag does not exist → must build
+  if [ -z "$version_id" ]; then
+    echo "[DOCKER] Version tag not found. Building image..."
     docker_build
     docker_tag
-    echo "[DOCKER] Image built successfully."
+
+  # Case 2: Version exists but latest missing → retag
+  elif [ -z "$latest_id" ]; then
+    echo "[DOCKER] 'latest' tag missing. Synchronizing..."
+    docker tag "$ImageVersion" "$ImageLatest"
+
+  # Case 3: Both exist but point to different images → retag
+  elif [ "$latest_id" != "$version_id" ]; then
+    echo "[DOCKER] Tag mismatch detected. Synchronizing..."
+    docker tag "$ImageVersion" "$ImageLatest"
+
   else
-    echo "[DOCKER] Image found."
+    echo "[DOCKER] Image verified ($ImageVersion)."
   fi
 
-  echo "[DOCKER] Image id: $(docker images "$ImageLatest" -q)"
+  final_id=$(docker image inspect "$ImageLatest" --format '{{.Id}}')
+  echo "[DOCKER] Active image ID: $final_id"
 }
 
 # ----------------------------------------------------------------
@@ -173,7 +187,7 @@ neutron_run_host() {
   ForceBuild="$1"
 
   if ! command -v "$QEMU" >/dev/null 2>&1; then
-    echo "ERROR: QEMU not found in PATH."
+    echo "[QEMU] Executable not found in PATH."
     exit 1
   fi
 
@@ -187,16 +201,54 @@ neutron_run_host() {
     echo "[RUN] Using existing build artifacts."
   fi
 
-  echo "[QEMU] Launching on host..."
+  SD_IMG="$BIN_DIR/sd.img"
+  BL_IMG="$BIN_DIR/kernel8.img"
+  CONFIG_FILE="$(pwd)/build.mk"
 
-  "$QEMU" \
-    -machine raspi3b \
-    -cpu cortex-a53 \
-    -m 1G \
-    -kernel "$BIN_DIR/kernel8.img" \
-    -drive file="$BIN_DIR/sd.img",if=sd,format=raw \
-    -serial mon:stdio \
-    -display none
+  if [ ! -f "$CONFIG_FILE" ]; then
+    echo "[CONFIG] build.mk not found."
+    exit 1
+  fi
+
+  EMBED_KERNEL_LINE=$(grep -E '^\s*EMBED_KERNEL\s*:=' "$CONFIG_FILE")
+
+  if [ -z "$EMBED_KERNEL_LINE" ]; then
+    echo "[CONFIG] EMBED_KERNEL entry missing in build.mk."
+    exit 1
+  fi
+
+  EMBED_KERNEL_VALUE=$(echo "$EMBED_KERNEL_LINE" | sed -E 's/^\s*EMBED_KERNEL\s*:=\s*//')
+
+  echo "[QEMU] Launching Raspberry Pi 3 (Cortex-A53)..."
+
+  if [ "$EMBED_KERNEL_VALUE" = "0" ]; then
+    echo "[QEMU] Running with SD card (kernel loaded from SD)..."
+
+    "$QEMU" \
+      -machine raspi3b \
+      -cpu cortex-a53 \
+      -m 1G \
+      -kernel "$BL_IMG" \
+      -drive file="$SD_IMG",if=sd,format=raw \
+      -serial mon:stdio \
+      -display none
+  else
+    echo "[QEMU] Running with embedded kernel (no SD card)..."
+
+    "$QEMU" \
+      -machine raspi3b \
+      -cpu cortex-a53 \
+      -m 1G \
+      -kernel "$BL_IMG" \
+      -serial mon:stdio \
+      -display none
+  fi
+
+  exit_code=$?
+  if [ $exit_code -ne 0 ]; then
+    echo "[QEMU] Execution failed with code $exit_code"
+    exit $exit_code
+  fi
 }
 
 # ----------------------------------------------------------------
@@ -223,7 +275,7 @@ neutron_run_docker() {
     --user "$(id -u):$(id -g)" \
     --mount type=bind,src="$ProjectPath",dst=/Neutron \
     "$ImageLatest" \
-    bash -c "make qemu-rpi"
+    bash -c "make qemu-rpi-no-build"
 }
 
 # ----------------------------------------------------------------
