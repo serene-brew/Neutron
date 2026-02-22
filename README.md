@@ -13,8 +13,8 @@
 ARMv8 AArch64 bare-metal bootloader for **Raspberry Pi Zero 2W** (and compatible boards). Runs in **QEMU** using the **raspi3b** machine, which emulates the same BCM2837-style peripherals and address map. Loads a kernel from the SD card (FAT32) and transfers control with a boot-info structure.
 
 >[!IMPORTANT]
-> For Developer's Manual, and cross platform build support (Windows, Linux, MacOS). <br>
-> There are build options for developers which can be configured from `build.cfg`. For a detailed guide check out the following documentation below <br>
+> ## For Developer Manual and Cross Platform Compilation (Docker Build over Windows, Linux and MacOS)
+> There are build options as well for developers which can be configured from `build.cfg`. For a detailed guide check out the following documentation below <br>
 > https://neutron-wiki.pages.dev/ 
 
 ## Overview
