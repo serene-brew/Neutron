@@ -10,13 +10,46 @@ Command="${1:-build}"
 Option="$2"
 
 # ----------------------------------------------------------------
-# Load Version from VERSION file
+# Ensure script runs relative to project root
 # ----------------------------------------------------------------
-if [[ ! -f VERSION ]]; then
-  echo "ERROR: VERSION file not found."
+SCRIPT_PATH="$(readlink -f "$0")"
+ProjectPath="$(dirname "$SCRIPT_PATH")"
+
+cd "$ProjectPath" || exit 1
+
+# ----------------------------------------------------------------
+# Validate Neutron Project Root Structure
+# ----------------------------------------------------------------
+RequiredFiles=("VERSION" "build.cfg")
+RequiredDirs=("neutron")
+MissingItems=()
+
+# Check required files
+for file in "${RequiredFiles[@]}"; do
+  if [[ ! -f "$ProjectPath/$file" ]]; then
+    MissingItems+=("$file")
+  fi
+done
+
+# Check required directories
+for dir in "${RequiredDirs[@]}"; do
+  if [[ ! -d "$ProjectPath/$dir" ]]; then
+    MissingItems+=("$dir/ (directory)")
+  fi
+done
+
+# Report missing items
+if [[ ${#MissingItems[@]} -gt 0 ]]; then
+  echo "ERROR: Invalid Neutron project root. Missing:"
+  for item in "${MissingItems[@]}"; do
+    echo "  - $item"
+  done
   exit 1
 fi
 
+# ----------------------------------------------------------------
+# Load Version from VERSION file
+# ----------------------------------------------------------------
 Version=$(grep '^VERSION:' VERSION | sed 's/^VERSION:[[:space:]]*//' | sed 's/^v//' | tr -d '\r')
 
 if [[ -z "$Version" ]]; then
@@ -27,7 +60,6 @@ fi
 # ----------------------------------------------------------------
 # Globals
 # ----------------------------------------------------------------
-ProjectPath="$(pwd)"
 ImageVersion="neutron-build:$Version"
 ImageLatest="neutron-build:latest"
 QEMU="qemu-system-aarch64"
@@ -203,14 +235,14 @@ neutron_run_host() {
 
   SD_IMG="$BIN_DIR/sd.img"
   BL_IMG="$BIN_DIR/kernel8.img"
-  CONFIG_FILE="$(pwd)/build.mk"
+  CONFIG_FILE="$ProjectPath/build.mk"
 
   if [ ! -f "$CONFIG_FILE" ]; then
     echo "[CONFIG] build.mk not found."
     exit 1
   fi
 
-  EMBED_KERNEL_LINE=$(grep -E '^\sEMBED_KERNEL\s:=' "$CONFIG_FILE" | tr -d '\r')
+  EMBED_KERNEL_LINE=$(grep -E '^\s*EMBED_KERNEL\s*:=' "$CONFIG_FILE" | tr -d '\r')
 
   if [ -z "$EMBED_KERNEL_LINE" ]; then
     echo "[CONFIG] EMBED_KERNEL entry missing in build.mk."
