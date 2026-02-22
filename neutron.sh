@@ -17,7 +17,7 @@ if [[ ! -f VERSION ]]; then
   exit 1
 fi
 
-Version=$(grep '^VERSION:' VERSION | sed 's/^VERSION:[[:space:]]*//' | sed 's/^v//')
+Version=$(grep '^VERSION:' VERSION | sed 's/^VERSION:[[:space:]]*//' | sed 's/^v//' | tr -d '\r')
 
 if [[ -z "$Version" ]]; then
   echo "ERROR: VERSION entry not found in VERSION file."
@@ -210,7 +210,7 @@ neutron_run_host() {
     exit 1
   fi
 
-  EMBED_KERNEL_LINE=$(grep -E '^\s*EMBED_KERNEL\s*:=' "$CONFIG_FILE")
+  EMBED_KERNEL_LINE=$(grep -E '^\sEMBED_KERNEL\s:=' "$CONFIG_FILE" | tr -d '\r')
 
   if [ -z "$EMBED_KERNEL_LINE" ]; then
     echo "[CONFIG] EMBED_KERNEL entry missing in build.mk."
