@@ -2,7 +2,7 @@
 <img width="500" height="500" alt="Neutron_Logo_for_Github" src="https://github.com/user-attachments/assets/8b634af5-5973-4994-9cdc-d485141269e3" />
 
 ### A Piece of Project atom
-### v1.1.0
+### v1.1.1
 </div>
 
 ---
@@ -34,21 +34,43 @@ Designed for educational purposes, QEMU simulation (`-machine raspi3b`), and dep
 
 ---
 
-## Quick Start (Docker based)
+## Host Machine setup
 
 ### Requirements
 
-- **AArch64 cross-compiler** (default prefix: `aarch64-linux-gnu-`)
-  - Arch: `sudo pacman -S aarch64-linux-gnu-gcc aarch64-linux-gnu-binutils`
-  - Fedora: `sudo dnf install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu`
-  - Ubuntu: `sudo apt install gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu`
+- **AArch64 cross-compiler** (default prefix: `aarch64-none-elf-`)
+
+```bash
+# Install required tools
+sudo apt update
+sudo apt install -y wget xz-utils ca-certificates
+
+# Download the toolchain (direct link)
+wget https://developer.arm.com/-/media/Files/downloads/gnu/14.2.rel1/binrel/arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-elf.tar.xz
+
+# Extract to /opt
+sudo mkdir -p /opt/aarch64-none-elf
+sudo tar -xf arm-gnu-toolchain-14.2.rel1-x86_64-aarch64-none-elf.tar.xz \
+    --strip-components=1 -C /opt/aarch64-none-elf
+
+# Add to PATH permanently
+echo 'export PATH=/opt/aarch64-none-elf/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+
+# Verify
+aarch64-none-elf-gcc --version
+```
+
 - **QEMU** with ARM support (`qemu-system-aarch64`)
+  - Ubuntu/Debian: `sudo apt install qemu-system`
+  - Arch: `sudo pacman -S qemu-system-aarch64`
+  - Fedora: `sudo dnf install qemu-system-aarch64`
 - **GNU Make**
 - **SD image tools** (for building the FAT32 disk image):
   - `parted`, `mtools`, `dosfstools`
   - Ubuntu/Debian: `sudo apt install parted mtools dosfstools`
-
-Override the toolchain with: `make CROSS=aarch64-none-elf- all`
+  - Arch: `sudo pacman -S parted mtools dosfstools`
+  - Fedora: `sudo dnf install parted mtools dosfstools`
 
 ### Building
 

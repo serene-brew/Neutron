@@ -164,7 +164,7 @@ def main():
     with open(build_mk_path, "w") as mk:
         mk.write("# =============================================================================\n")
         mk.write("# Neutron Bootloader - Project Atom\n")
-        mk.write("# kernel/main.c  —  ARMv8 AArch64 bare-metal bootloader\n")
+        mk.write("# build.mk  —  kernel embedder inside bootloader\n")
         mk.write("#\n")
         mk.write("# Organization : serene brew\n")
         mk.write("# Author       : mintRaven-05\n")

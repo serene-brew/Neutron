@@ -1,6 +1,6 @@
 # =============================================================================
 # Neutron Bootloader - Project Atom
-# build.mk - kernel embedder inside bootloader
+# build.mk  —  kernel embedder inside bootloader
 #
 # Organization : serene brew
 # Author       : mintRaven-05
