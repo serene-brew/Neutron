@@ -57,10 +57,12 @@ graph TD
 
 - **Contains**: Build configuration and project metadata
 - **Key Files**:
+  - `build.cfg` — developers build config file
   - `Makefile` — Build system (bootloader, kernel, SD image, QEMU)
   - `pack_kernel.py` — NKRN kernel image packer (header + CRC32)
   - `neutron.ps1` — Docker-based CLI for Windows (build, run, emu, shell)
-  - `Dockerfile` — Build environment (Ubuntu 24.04, aarch64 toolchain, mtools)
+  - `neutron.sh` — Docker-based CLI for Linux and MacOS (build, run, emu, shell)
+  - `Dockerfile` — Build environment (Ubuntu 24.04, aarch64-none-elf toolchain, mtools)
   - `LICENSE` — BSD-3-Clause
 
 ---

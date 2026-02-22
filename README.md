@@ -2,7 +2,7 @@
 <img width="500" height="500" alt="Neutron_Logo_for_Github" src="https://github.com/user-attachments/assets/8b634af5-5973-4994-9cdc-d485141269e3" />
 
 ### A Piece of Project atom
-### v1.0.1
+### v1.1.0
 </div>
 
 ---
@@ -11,6 +11,11 @@
 </div>
 
 ARMv8 AArch64 bare-metal bootloader for **Raspberry Pi Zero 2W** (and compatible boards). Runs in **QEMU** using the **raspi3b** machine, which emulates the same BCM2837-style peripherals and address map. Loads a kernel from the SD card (FAT32) and transfers control with a boot-info structure.
+
+>[!IMPORTANT]
+> For Developer's Manual, and cross platform build support (Windows, Linux, MacOS). <br>
+> There are build options for developers which can be configured from `build.cfg`. For a detailed guide check out the following documentation below <br>
+> https://neutron-wiki.pages.dev/ 
 
 ## Overview
 
@@ -28,11 +33,8 @@ Neutron is a minimal yet functional bootloader that:
 Designed for educational purposes, QEMU simulation (`-machine raspi3b`), and deployment on Raspberry Pi Zero 2W (or Pi 3B) with an SD card.
 
 ---
->[!NOTE]
-> For Developer Manual and windows build support check out the following documentation below <br>
-> https://neutron-wiki.pages.dev/ 
 
-## Quick Start
+## Quick Start (Docker based)
 
 ### Requirements
 
@@ -52,17 +54,17 @@ Override the toolchain with: `make CROSS=aarch64-none-elf- all`
 
 ```bash
 make clean
-make all        # build bootloader + kernel + SD image (default)
+make all        # build bootloader + kernel (+ sd.img unless embed-kernel = true)
 make bootloader # compile only kernel8.img
 make kernel     # compile only atom.bin (raw kernel + NKRN pack)
-make sd-image   # create sd.img from atom.bin (FAT32, ATOM.BIN in root)
+make sd-image   # create sd.img (FAT32; kernel filename from build.cfg)
 ```
 
-This generates:
+Build behaviour depends on **`build.cfg`**: the kernel filename (e.g. `ATOM.BIN` or `CUSTOM.BIN`) and **`embed-kernel`** (if `true`, the kernel is embedded in `kernel8.img` and no SD image is built by default). This generates:
 
-- **`bin/kernel8.img`** — Bootloader binary (loaded by GPU / QEMU at 0x80000)
-- **`bin/atom.bin`** — Packed test kernel (NKRN header + payload); must be placed on SD as **ATOM.BIN**
-- **`bin/sd.img`** — 64 MiB FAT32 disk image with `ATOM.BIN` in the root (used by QEMU as the SD card)
+- **`bin/kernel8.img`** — Bootloader binary (loaded by GPU / QEMU at 0x80000); with `embed-kernel = true` it contains the packed kernel.
+- **`bin/atom.bin`** — Packed test kernel (NKRN header + payload). On SD it must be named as in `kernel_filename` (e.g. `ATOM.BIN`).
+- **`bin/sd.img`** — 64 MiB FAT32 disk with the kernel in the root (built by `make sd-image` or `make all` when `embed-kernel = false`).
 
 ### Running in QEMU
 
@@ -70,13 +72,13 @@ This generates:
 make qemu-rpi   # build all, then boot with kernel8.img + sd.img
 ```
 
-QEMU is invoked with `-machine raspi3b`, `-cpu cortex-a53`, 1 GiB RAM, `-kernel bin/kernel8.img`, and `-drive file=bin/sd.img,if=sd,format=raw`. Serial I/O goes to the terminal (`-serial mon:stdio`).
+QEMU is invoked with `-machine raspi3b`, `-cpu cortex-a53`, 1 GiB RAM, and `-kernel bin/kernel8.img`. If `embed-kernel` is `false`, a drive is added: `-drive file=bin/sd.img,if=sd,format=raw`. Serial I/O goes to the terminal (`-serial mon:stdio`).
 
 ### Running on real hardware (Raspberry Pi Zero 2W / Pi 3B)
 
 1. Prepare an SD card with the official Raspberry Pi boot files: `bootcode.bin`, `start.elf`, `fixup.dat` (and optionally `config.txt`).
 2. Copy **`bin/kernel8.img`** to the SD card as the kernel image (rename if your setup expects a specific name).
-3. Ensure the first partition is FAT32 and contains **ATOM.BIN** (the packed kernel) in the root directory. You can use `bin/sd.img`’s first partition as a reference, or copy `bin/atom.bin` onto the card as `ATOM.BIN`.
+3. Ensure the first partition is FAT32 and contains the packed kernel in the root directory under the name set in `build.cfg` (e.g. **ATOM.BIN** or **CUSTOM.BIN**). You can use `bin/sd.img`’s first partition as a reference, or copy `bin/atom.bin` onto the card with that name.
 4. Boot the board; the GPU will load `kernel8.img` at 0x80000 and hand off to Neutron, which then loads the kernel from the SD card and jumps to it.
 
 ---
@@ -92,13 +94,15 @@ Neutron/
   neutron/           - Bootloader C (main.c, bootloader.c)
   test_kernel/       - Minimal test kernel (boot + linker + kernel_main.c)
   Makefile           - Build configuration
+  build.cfg          - Build configuration (kernel filename, addresses, logging, branding)
+  gen_config.py      - Generates include/config.h from build.cfg
   pack_kernel.py     - NKRN kernel image packer (header + CRC32)
   neutron.ps1        - Docker-based CLI for Windows (build, run, emu, shell)
   Dockerfile         - Build environment (Ubuntu, aarch64 toolchain, mtools)
   LICENSE            - BSD-3-Clause
 ```
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation. For build-time configuration (kernel filename, addresses, logging, embedding) see [Neutron Developer's Manual](https://neutron-wiki.pages.dev).
 
 ---
 
@@ -127,6 +131,17 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation.
 - **0x1000** — `boot_info_t` filled by the bootloader (magic, board revision, ARM memory size, kernel load/entry/size, bootloader version string).
 - **0x3F000000** — BCM2837 peripheral base (GPIO, UART0, SDHOST, mailbox, etc.).
 - **0x3F201000** — PL011 UART0 (used for serial console).
+
+---
+
+## Configuration
+
+Per-build options are set in **`build.cfg`** at the project root. Run `make` to regenerate `include/config.h` and `build.mk` from `build.cfg`. Key options:
+
+- **`kernel_filename`** — Filename of the packed kernel on the FAT32 root (e.g. `"ATOM.BIN"` or `"CUSTOM.BIN"`). The Makefile uses this when creating the SD image.
+- **`embed-kernel`** — If `true`, the packed kernel is embedded into `kernel8.img` and the bootloader boots without SD/FAT32; if `false`, the kernel is loaded from the SD card and `make all` also builds `sd.img`.
+
+Other options: staging/load addresses, log level, ANSI colours, banner and version text. See [Neutron Developer's Manual](https://neutron-wiki.pages.dev) for the full key list and an example matching the current `build.cfg`.
 
 ---
 
