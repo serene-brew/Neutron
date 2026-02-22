@@ -14,7 +14,7 @@
 # ----------------------------------------------------------------
 # Toolchain
 # ----------------------------------------------------------------
-CROSS   ?= aarch64-linux-gnu-
+CROSS   ?= aarch64-none-elf-
 
 CC      := $(CROSS)gcc
 AS      := $(CROSS)gcc
@@ -36,10 +36,28 @@ BUILD_DIR   := build
 BIN_DIR     := bin
 
 # ----------------------------------------------------------------
+# Configuration (generate include/config.h and build.mk from build.cfg)
+# ----------------------------------------------------------------
+CONFIG_H := $(INCLUDE_DIR)/config.h
+BUILD_MK := build.mk
+
+# Generate both config.h and build.mk from build.cfg. build.mk is included
+# below; making it a target and a prerequisite of 'all' ensures it is rebuilt
+# when build.cfg changes, and Make re-execs so the new KERNEL_FILENAME etc.
+# are used for the rest of the build.
+build.mk $(CONFIG_H): build.cfg
+	@echo "[CFG] Generating $(CONFIG_H) and $(BUILD_MK) from build.cfg"
+	@python3 gen_config.py
+
+-include $(BUILD_MK)
+
+KERNEL_FILENAME ?= ATOM.BIN
+EMBED_KERNEL ?= 0
+
+# ----------------------------------------------------------------
 # Bootloader sources
 # ----------------------------------------------------------------
 BL_ASM_SRCS := $(BOOT_DIR)/start.S
-
 BL_C_SRCS   := $(DRIVER_DIR)/gpio.c        \
                 $(DRIVER_DIR)/uart.c        \
                 $(DRIVER_DIR)/mbox.c        \
@@ -51,6 +69,11 @@ BL_C_SRCS   := $(DRIVER_DIR)/gpio.c        \
 BL_ASM_OBJS := $(patsubst %.S,$(BUILD_DIR)/%.o,$(BL_ASM_SRCS))
 BL_C_OBJS   := $(patsubst %.c,$(BUILD_DIR)/%.o,$(BL_C_SRCS))
 BL_OBJS     := $(BL_ASM_OBJS) $(BL_C_OBJS)
+
+ifeq ($(EMBED_KERNEL),1)
+BL_EMBED_OBJ := $(BUILD_DIR)/embedded_kernel.o
+BL_OBJS      += $(BL_EMBED_OBJ)
+endif
 
 # ----------------------------------------------------------------
 # Kernel sources
@@ -126,11 +149,16 @@ QEMU_CPU        := cortex-a53
 QEMU_MEM        := 1G
 QEMU_GDB_PORT   := 1234
 
+QEMU_SD_DRIVE   := -drive file=$(SD_IMG),if=sd,format=raw
+ifeq ($(EMBED_KERNEL),1)
+QEMU_SD_DRIVE   :=
+endif
+
 QEMU_FLAGS  := -machine $(QEMU_MACHINE) \
                -cpu $(QEMU_CPU) \
                -m $(QEMU_MEM) \
                -kernel $(BL_IMG) \
-               -drive file=$(SD_IMG),if=sd,format=raw \
+               $(QEMU_SD_DRIVE) \
                -serial mon:stdio \
                -display none
 
@@ -143,17 +171,23 @@ QEMU_FLAGS  := -machine $(QEMU_MACHINE) \
 # ----------------------------------------------------------------
 # Default target
 # ----------------------------------------------------------------
-all: bootloader kernel sd-image
+ifeq ($(EMBED_KERNEL),1)
+all: build.mk bootloader kernel
+else
+all: build.mk bootloader kernel sd-image
+endif
 	@echo ""
 	@echo "Neutron build complete!"
 	@echo "Bootloader : kernel8.img"
-	@echo "Kernel     : atom.bin (inside sd.img)"
+	@echo "Kernel     : $(KERNEL_FILENAME) ($(if $(filter 1,$(EMBED_KERNEL)),embedded,inside sd.img))"
 	@echo "Run        : make qemu-rpi"
 
 # ----------------------------------------------------------------
 # Bootloader
 # ----------------------------------------------------------------
-bootloader: $(BL_IMG)
+bootloader: $(CONFIG_H) $(BL_IMG)
+
+$(BL_C_OBJS): $(CONFIG_H)
 
 $(BL_ELF): $(BL_OBJS)
 	@mkdir -p $(BUILD_DIR)
@@ -165,6 +199,13 @@ $(BL_IMG): $(BL_ELF)
 	@mkdir -p $(BIN_DIR)
 	@echo "[IMG] $@"
 	@$(OBJCOPY) -O binary $< $@
+
+ifeq ($(EMBED_KERNEL),1)
+$(BL_EMBED_OBJ): $(K_BIN)
+	@mkdir -p $(dir $@)
+	@echo "[EMBED] $< -> $@"
+	@$(OBJCOPY) -I binary -O elf64-littleaarch64 -B aarch64 $< $@
+endif
 
 # ----------------------------------------------------------------
 # Kernel
@@ -198,7 +239,7 @@ $(SD_IMG): $(K_BIN)
 	parted -s $@ mklabel msdos
 	parted -s $@ mkpart primary fat32 1MiB 100%
 	mformat -i $@@@1M -F -v NEUTRON ::
-	mcopy -i $@@@1M $(K_BIN) ::ATOM.BIN
+	mcopy -i $@@@1M $(K_BIN) ::$(KERNEL_FILENAME)
 	@echo "[SD]  Contents:"
 	@mdir -i $@@@1M ::
 
@@ -258,10 +299,10 @@ help:
 		@echo ""
 		@echo "Neutron Bootloader - available targets:"
 		@echo ""
-		@echo "  make all              Build bootloader + kernel + sd.img (default)"
+		@echo "  make all              Build bootloader + kernel $(if $(filter 1,$(EMBED_KERNEL)),(embedded kernel),+ sd.img) (default)"
 		@echo "  make bootloader       Build kernel8.img only"
 		@echo "  make kernel           Build atom.bin only"
-		@echo "  make sd-image         Create sd.img FAT32 disk with atom.bin"
+		@echo "  make sd-image         Create sd.img FAT32 disk with $(KERNEL_FILENAME)"
 		@echo "  make qemu-rpi         Boot in QEMU (SD card path)"
 		@echo "  make size             Section sizes for both"
 		@echo "  make clean            Remove all build artefacts"
