@@ -10,7 +10,9 @@
 # ================================================================
 param (
     [string]$Command = "build",
-    [string]$Option
+    [string]$Option,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$ExtraArgs
 )
 
 # ----------------------------------------------------------------
@@ -221,8 +223,10 @@ try {
             }
         }
         
-        Write-Host "[BUILD] make $Target"
-        Docker-RunCmd "make $Target"
+        $makeArgs = @()
+        if ($ExtraArgs) { $makeArgs = $ExtraArgs }
+        Write-Host "[BUILD] make $Target $($makeArgs -join ' ')"
+        Docker-RunCmd ("make " + $Target + " " + ($makeArgs -join ' '))
     }
 
     # ----------------------------------------------------------------
@@ -231,7 +235,20 @@ try {
     function Build-Exists {
         $kernel = Join-Path $BIN_DIR "kernel8.img"
         $sdimg  = Join-Path $BIN_DIR "sd.img"
-        return (Test-Path $kernel) -and (Test-Path $sdimg)
+        $config = Join-Path (Get-Location) "build.mk"
+
+        if (-not (Test-Path $kernel)) { return $false }
+
+        # If we don't know embed mode yet, be conservative and require sd.img too.
+        if (-not (Test-Path $config)) { return (Test-Path $sdimg) }
+
+        $EmbedKernelLine = Get-Content $config | Where-Object { $_ -match '^\s*EMBED_KERNEL\s*:=' }
+        if (-not $EmbedKernelLine) { return (Test-Path $sdimg) }
+
+        $EmbedKernelValue = ($EmbedKernelLine -replace '^\s*EMBED_KERNEL\s*:=\s*', '').Trim()
+        if ($EmbedKernelValue -eq "1") { return $true }
+
+        return (Test-Path $sdimg)
     }
 
     # ----------------------------------------------------------------
@@ -340,10 +357,14 @@ try {
         Write-Host "  build               Build inside Docker"
         Write-Host "    all               [Default] Build all artifacts"
         Write-Host "    bootloader        Build kernel8.img only"
-        Write-Host "    kernel            Build atom.bin only"
+        Write-Host "    kernel            Build packed kernel (K_BIN, default bin/atom.bin)"
         Write-Host "    sd-image          Create sd.img only"
         Write-Host "    clean             Remove build artifacts"
         Write-Host "    size              Show section sizes"
+        Write-Host ""
+        Write-Host "  Examples:"
+        Write-Host "    .\\neutron.ps1 build all"
+        Write-Host "    .\\neutron.ps1 build kernel K_BIN=out/custom.bin"
         Write-Host ""
         
         Write-Host "Run (QEMU - Host):"

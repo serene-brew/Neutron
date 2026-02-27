@@ -7,7 +7,12 @@
 set -e
 
 Command="${1:-build}"
-Option="$2"
+shift || true
+
+# Remaining args after <command>
+Option="${1:-}"
+shift || true
+ExtraArgs=("$@")
 
 # ----------------------------------------------------------------
 # Ensure script runs relative to project root
@@ -184,6 +189,8 @@ neutron_docker() {
 # ----------------------------------------------------------------
 neutron_build() {
   Target="${1:-all}"
+  shift || true
+  MakeArgs=("$@")
 
   case "$Target" in
   all | bootloader | kernel | sd-image | clean | size) ;;
@@ -201,15 +208,35 @@ neutron_build() {
     ;;
   esac
 
-  echo "[BUILD] make $Target"
-  docker_run_cmd "make $Target"
+  echo "[BUILD] make $Target ${MakeArgs[*]}"
+  docker_run_cmd "make $Target ${MakeArgs[*]}"
 }
 
 # ----------------------------------------------------------------
 # Check If Build Exists
 # ----------------------------------------------------------------
 build_exists() {
-  [[ -f "$BIN_DIR/kernel8.img" && -f "$BIN_DIR/sd.img" ]]
+  local bl_img="$BIN_DIR/kernel8.img"
+  local sd_img="$BIN_DIR/sd.img"
+  local cfg="$ProjectPath/build.mk"
+
+  [[ -f "$bl_img" ]] || return 1
+
+  # If we don't know embed mode yet, be conservative and require sd.img too.
+  if [[ ! -f "$cfg" ]]; then
+    [[ -f "$sd_img" ]]
+    return $?
+  fi
+
+  local embed_line embed_val
+  embed_line=$(grep -E '^\s*EMBED_KERNEL\s*:=' "$cfg" 2>/dev/null | tr -d '\r' || true)
+  embed_val=$(echo "$embed_line" | sed -E 's/^\s*EMBED_KERNEL\s*:=\s*//' || true)
+
+  if [[ "$embed_val" == "1" ]]; then
+    return 0
+  fi
+
+  [[ -f "$sd_img" ]]
 }
 
 # ----------------------------------------------------------------
@@ -322,13 +349,17 @@ show_help() {
   echo
 
   echo "Build Commands:"
-  echo "  build [target]          Build inside Docker"
+  echo "  build [target] [make-vars...]  Build inside Docker"
   echo "    all                   [Default] Build all artifacts"
   echo "    bootloader            Build kernel8.img only"
-  echo "    kernel                Build atom.bin only"
+  echo "    kernel                Build packed kernel (K_BIN, default bin/atom.bin)"
   echo "    sd-image              Create sd.img only"
   echo "    clean                 Remove build artifacts"
   echo "    size                  Show section sizes"
+  echo
+  echo "  Examples:"
+  echo "    ./neutron.sh build all"
+  echo "    ./neutron.sh build kernel K_BIN=out/custom.bin"
   echo
 
   echo "Run (QEMU - Host):"
@@ -370,7 +401,7 @@ echo "Neutron Bootloader - Version $Version"
 
 case "$Command" in
 build)
-  neutron_build "$Option"
+  neutron_build "${Option:-all}" "${ExtraArgs[@]}"
   ;;
 run)
   [[ "$Option" == "--build" ]] && force=true || force=false
