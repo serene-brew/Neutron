@@ -65,7 +65,8 @@ def parse_cfg(path: Path) -> dict:
 def main():
     root = Path(__file__).resolve().parent
     cfg_path = root / "build.cfg"
-    out_path = root / "include" / "config.h"
+    # Bootloader headers live under internal/, so generate the C config there.
+    out_path = root / "internal" / "config.h"
 
     cfg = parse_cfg(cfg_path)
     kernel_filename_raw = cfg.get("kernel_filename", DEFAULTS["kernel_filename"])
