@@ -352,14 +352,14 @@ show_help() {
   echo "  build [target] [make-vars...]  Build inside Docker"
   echo "    all                   [Default] Build all artifacts"
   echo "    bootloader            Build kernel8.img only"
-  echo "    kernel                Build packed kernel (K_BIN, default bin/atom.bin)"
+  echo "    kernel                Build packed test kernel (outputs bin/atom.bin)"
   echo "    sd-image              Create sd.img only"
   echo "    clean                 Remove build artifacts"
   echo "    size                  Show section sizes"
   echo
   echo "  Examples:"
   echo "    ./neutron.sh build all"
-  echo "    ./neutron.sh build kernel K_BIN=out/custom.bin"
+  echo "    ./neutron.sh build all K_BIN=/path/to/prebuilt_packed.bin"
   echo
 
   echo "Run (QEMU - Host):"

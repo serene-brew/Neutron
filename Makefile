@@ -93,12 +93,29 @@ BL_IMG      := $(BIN_DIR)/kernel8.img
 
 K_RAW_ELF   := $(BUILD_DIR)/kernel_raw.elf
 K_RAW_BIN   := $(BUILD_DIR)/kernel_raw.bin
-# Packed kernel output (host file). Override at invocation time:
-#   make K_BIN=out/mykernel.bin all
-K_BIN       ?= $(BIN_DIR)/atom.bin
+# Packed kernel image to boot (host file).
+#
+# - Default (no override): build the bundled test_kernel and pack it to:
+#     bin/atom.bin
+# - If you pass K_BIN on the command line, Neutron will use that *prebuilt*
+#   packed NKRN image and will NOT build test_kernel:
+#     make all K_BIN=/path/to/prebuilt_packed.bin
+K_BIN_BUILT := $(BIN_DIR)/atom.bin
+K_BIN       ?= $(K_BIN_BUILT)
+
+USE_PREBUILT_KERNEL := 0
+ifeq ($(origin K_BIN),command line)
+USE_PREBUILT_KERNEL := 1
+endif
+
+ifeq ($(USE_PREBUILT_KERNEL),1)
+K_BIN_SRC := $(K_BIN)
+else
+K_BIN_SRC := $(K_BIN_BUILT)
+endif
 
 # Fixed path used for embedded-kernel builds to keep objcopy-generated
-# symbols stable regardless of the host output path of $(K_BIN).
+# symbols stable regardless of the host path of the packed kernel.
 KERNEL_EMBED_BIN := $(BUILD_DIR)/kernel_embed.bin
 
 SD_IMG      := $(BIN_DIR)/sd.img
@@ -209,7 +226,7 @@ $(BL_IMG): $(BL_ELF)
 	@$(OBJCOPY) -O binary $< $@
 
 ifeq ($(EMBED_KERNEL),1)
-$(KERNEL_EMBED_BIN): $(K_BIN)
+$(KERNEL_EMBED_BIN): $(K_BIN_SRC)
 	@mkdir -p $(dir $@)
 	@echo "[EMBED] staging $< -> $@"
 	@cp $< $@
@@ -223,7 +240,13 @@ endif
 # ----------------------------------------------------------------
 # Kernel
 # ----------------------------------------------------------------
-kernel: $(K_BIN)
+ifeq ($(USE_PREBUILT_KERNEL),1)
+kernel:
+	@test -f "$(K_BIN_SRC)" || (echo "[KERNEL] FATAL: prebuilt packed kernel not found: $(K_BIN_SRC)" && exit 1)
+	@echo "[KERNEL] Using prebuilt packed kernel: $(K_BIN_SRC)"
+else
+kernel: $(K_BIN_BUILT)
+endif
 
 $(K_RAW_ELF): $(K_OBJS)
 	@mkdir -p $(BUILD_DIR)
@@ -235,7 +258,7 @@ $(K_RAW_BIN): $(K_RAW_ELF)
 	@echo "[BIN] $@"
 	@$(OBJCOPY) -O binary $< $@
 
-$(K_BIN): $(K_RAW_BIN)
+$(K_BIN_BUILT): $(K_RAW_BIN)
 	@mkdir -p $(dir $@)
 	@echo "[PKG] $@ (packing NKRN header)"
 	@python3 pack_kernel.py $< -o $@ -n "Neutron Test Kernel"
@@ -245,14 +268,14 @@ $(K_BIN): $(K_RAW_BIN)
 # ----------------------------------------------------------------
 sd-image: $(SD_IMG)
 
-$(SD_IMG): $(K_BIN)
+$(SD_IMG): $(K_BIN_SRC)
 	@mkdir -p $(dir $@)
 	@echo "[SD]  Creating $(SD_SIZE_MB) MiB SD image: $@"
 	dd if=/dev/zero of=$@ bs=1M count=$(SD_SIZE_MB) status=none
 	parted -s $@ mklabel msdos
 	parted -s $@ mkpart primary fat32 1MiB 100%
 	mformat -i $@@@1M -F -v NEUTRON ::
-	mcopy -i $@@@1M $(K_BIN) ::$(KERNEL_FILENAME)
+	mcopy -i $@@@1M $(K_BIN_SRC) ::$(KERNEL_FILENAME)
 	@echo "[SD]  Contents:"
 	@mdir -i $@@@1M ::
 
