@@ -27,10 +27,11 @@
 #include <stdint.h>
 
 #if CFG_EMBED_KERNEL
-/* Embedded packed kernel image (bin/atom.bin) when EMBED_KERNEL=1.
- * Generated via objcopy -I binary -O elf64-littleaarch64 -B aarch64. */
-extern const unsigned char _binary_bin_atom_bin_start[];
-extern const unsigned char _binary_bin_atom_bin_end[];
+/* Embedded packed kernel image when embed-kernel=true.
+ * The build system stages the packed kernel to build/kernel_embed.bin and links
+ * it via objcopy -I binary -O elf64-littleaarch64 -B aarch64. */
+extern const unsigned char _binary_build_kernel_embed_bin_start[];
+extern const unsigned char _binary_build_kernel_embed_bin_end[];
 #endif
 
 /* ----------------------------------------------------------------
@@ -110,7 +111,7 @@ void neutron_main(void) {
 #if CFG_EMBED_KERNEL
   /* ----- Embedded kernel path ----- */
   uart_puts("\n[BL] Using embedded kernel image...\n");
-  nkrn_src = (uintptr_t)_binary_bin_atom_bin_start;
+  nkrn_src = (uintptr_t)_binary_build_kernel_embed_bin_start;
 #else
   /* ----- Initialise SD card ----- */
   uart_puts("\n[BL] Initialising SD card...\n");
