@@ -153,7 +153,7 @@ graph TD
   - `kernel_main.c` — Inline UART/GPIO init (0x3F201000, 115200), print banner and boot_info fields, then heartbeat dots over UART
   - `linker/kernel.ld` — VMA 0x200000; sections .text.kernel_entry, .text, .rodata, .data, .bss
 - **Purpose**: Prove that the bootloader loads a packed image from SD, validates it, copies to 0x200000, and passes boot_info in x0
-- **Build**: Linked as raw binary, then packed with `pack_kernel.py` (load/entry 0x200000) to produce a packed kernel file (`K_BIN`, default `bin/atom.bin`). The SD image (when used) copies that file into the FAT32 root as the name configured by `kernel_filename`.
+- **Build**: Linked as raw binary, then packed with `pack_kernel.py` (load/entry 0x200000) to produce the packed test kernel `bin/atom.bin`. Alternatively, you can supply a prebuilt packed kernel image by passing `K_BIN=/path/to/prebuilt_packed.bin` to Make; in that case `test_kernel` is not built. The SD image (when used) copies the selected packed kernel into the FAT32 root as the name configured by `kernel_filename`.
 
 ---
 
@@ -208,7 +208,7 @@ graph LR
     end
     subgraph Output
         BLIMG["bin/kernel8.img"]
-        ATOM["K_BIN (default bin/atom.bin)"]
+        ATOM["Packed kernel (default bin/atom.bin or prebuilt via K_BIN=...)"]
         SDIMG["bin/sd.img"]
     end
 
