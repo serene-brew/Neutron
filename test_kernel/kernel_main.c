@@ -19,53 +19,9 @@
  *   pointer to boot_info_t at physical address 0x1000
  * ================================================================ */
 
+#include "neutron.h"
 #include <stddef.h>
 #include <stdint.h>
-
-/* ----------------------------------------------------------------
- * Peripheral base  (BCM2837 / QEMU raspi3b)
- * ---------------------------------------------------------------- */
-#define MMIO_BASE 0x3F000000UL
-#define GPIO_BASE (MMIO_BASE + 0x00200000UL)
-#define UART0_BASE (MMIO_BASE + 0x00201000UL)
-
-/* PL011 register offsets */
-#define UART_DR 0x00
-#define UART_FR 0x18
-#define UART_IBRD 0x24
-#define UART_FBRD 0x28
-#define UART_LCRH 0x2C
-#define UART_CR 0x30
-#define UART_IMSC 0x38
-#define UART_ICR 0x44
-
-#define UART_FR_TXFF (1 << 5)
-#define UART_FR_RXFE (1 << 4)
-#define UART_LCRH_FEN (1 << 4)
-#define UART_LCRH_8BIT (0x3 << 5)
-#define UART_CR_EN (1 << 0)
-#define UART_CR_TXE (1 << 8)
-#define UART_CR_RXE (1 << 9)
-
-/* GPIO */
-#define GPFSEL1 0x04
-#define GPPUD 0x94
-#define GPPUDCLK0 0x98
-
-/* ----------------------------------------------------------------
- * boot_info_t  -  must match bootloader's bootloader.h exactly
- * ---------------------------------------------------------------- */
-#define BOOT_INFO_MAGIC 0xB007B007U
-
-typedef struct {
-  uint32_t magic;
-  uint32_t board_revision;
-  uint32_t arm_mem_size;
-  uint32_t kernel_load_addr;
-  uint32_t kernel_entry_addr;
-  uint32_t kernel_size;
-  char bootloader_version[16];
-} __attribute__((packed)) boot_info_t;
 
 /* ----------------------------------------------------------------
  * MMIO helpers
