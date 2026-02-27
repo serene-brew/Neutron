@@ -17,6 +17,7 @@ graph TD
     ROOT --> BOOT["boot/"]
     ROOT --> DRIVER["driver/"]
     ROOT --> INCLUDE["include/"]
+    ROOT --> INTERNAL["internal/"]
     ROOT --> LINKER["linker/"]
     ROOT --> NEUTRON_DIR["neutron/"]
     ROOT --> TEST_KERNEL["test_kernel/"]
@@ -30,14 +31,17 @@ graph TD
     DRIVER --> SD_C["sdcard.c"]
     DRIVER --> FAT32_C["fat32.c"]
 
-    INCLUDE --> PLATFORM_H["platform.h<br/>Memory map"]
-    INCLUDE --> BOOTLOADER_H["bootloader.h<br/>NKRN / boot_info"]
-    INCLUDE --> UART_H["uart.h"]
-    INCLUDE --> GPIO_H["gpio.h"]
-    INCLUDE --> MBOX_H["mbox.h"]
-    INCLUDE --> SDCARD_H["sdcard.h"]
-    INCLUDE --> FAT32_H["fat32.h"]
-    INCLUDE --> AARCH64_H["aarch64.h"]
+    INCLUDE --> NEUTRON_H["neutron.h<br/>Shared ABI + MMIO defs"]
+
+    INTERNAL --> PLATFORM_H["platform.h<br/>Memory map + mailbox tags"]
+    INTERNAL --> BOOTLOADER_H["bootloader.h<br/>NKRN + bootloader API"]
+    INTERNAL --> UART_H["uart.h"]
+    INTERNAL --> GPIO_H["gpio.h"]
+    INTERNAL --> MBOX_H["mbox.h"]
+    INTERNAL --> SDCARD_H["sdcard.h"]
+    INTERNAL --> FAT32_H["fat32.h"]
+    INTERNAL --> AARCH64_H["aarch64.h"]
+    INTERNAL --> CONFIG_H["config.h<br/>Generated from build.cfg"]
 
     LINKER --> BOOTLOADER_LD["bootloader.ld<br/>0x80000"]
 
@@ -91,23 +95,26 @@ graph TD
   - `mbox.c` — VideoCore mailbox (property channel): board revision, ARM memory size
   - `sdcard.c` — SD/MMC card init and block read (EMMC/SDHCI controller)
   - `fat32.c` — Read-only FAT32: MBR, partition 0, BPB, root directory, file read by name
-- **Purpose**: UART for debug/console; mailbox for board info; SD + FAT32 to load ATOM.BIN from the first partition
+- **Purpose**: UART for debug/console; mailbox for board info; SD + FAT32 to load the packed kernel from the first partition (when `embed-kernel = false`)
 - **Used by**: Bootloader only (test kernel has its own minimal UART/GPIO in `kernel_main.c`)
 
 ---
 
-### **include/** — Header Files
+### **include/** — Shared Header Files
 
-- **Contains**: Public API and platform definitions
+- **Contains**: Headers shared by both the bootloader and the test kernel
 - **Key Files**:
-  - `platform.h` — BCM2710/BCM2837 memory map: MMIO_BASE 0x3F000000, UART0_BASE, GPIO_BASE, SDHOST_BASE, MBOX_BASE; BOOTLOADER_LOAD_ADDR 0x80000, KERNEL_LOAD_ADDR 0x100000, KERNEL_MAX_SIZE; PL011/GPIO/MBOX register offsets
-  - `bootloader.h` — NKRN header layout (`kernel_header_t`), `boot_info_t`, BOOT_INFO_ADDR (0x1000), BL_* return codes; `bl_load_kernel()`, `bl_boot_kernel()`, `crc32()`
-  - `uart.h` — `uart_init()`, `uart_putc`/`uart_puts`/`uart_getc`, `uart_printf`, `uart_puthex64`/`uart_puthex32`/`uart_putdec`
-  - `gpio.h` — `gpio_set_func()`, `gpio_set_pull()`, `gpio_set`/`gpio_clear`/`gpio_get`
-  - `mbox.h` — `mbox_call()`, `mbox_get_board_revision()`, `mbox_get_arm_mem_size()`
-  - `sdcard.h` — `sdcard_init()`, `sdcard_read_block()`/`sdcard_read_blocks()`
-  - `fat32.h` — `fat32_mount()`, `fat32_read_file()`, BPB/dir structures
-  - `aarch64.h` — SPSR/HCR/SCTLR bits for EL2→EL1 drop
+  - `neutron.h` — Shared ABI and common MMIO definitions:
+    - `boot_info_t`, `BOOT_INFO_MAGIC`, `BOOT_INFO_ADDR`
+    - MMIO base + PL011 UART + GPIO register offsets used by both sides
+
+### **internal/** — Bootloader Header Files
+
+- **Contains**: Bootloader-only headers and generated configuration
+- **Key Files**:
+  - `platform.h` — Memory map + SDHOST/Mailbox bases + mailbox tags
+  - `bootloader.h` — NKRN header layout (`kernel_header_t`), bootloader API (`bl_load_kernel`, `bl_boot_kernel`), error codes
+  - `config.h` — Generated from `build.cfg` (and accompanied by `build.mk` for Makefile variables)
 
 ---
 
@@ -124,13 +131,16 @@ graph TD
 
 - **Contains**: Main bootloader logic
 - **Key Files**:
-  - `main.c` — Entry point `neutron_main()`: UART init, banner, read EL/MPIDR, mailbox (board revision, ARM memory), board identification (Zero 2W vs generic vs QEMU), SD init, FAT32 mount, read ATOM.BIN to KERNEL_LOAD_ADDR (0x100000), NKRN magic check, `bl_load_kernel()`, fill board_revision/arm_mem_size in boot_info, countdown, `bl_boot_kernel(entry, &boot_info)`
+  - `main.c` — Entry point `neutron_main()`: UART init + banner, mailbox (board revision, ARM memory), board identification, then either:
+    - **SD/FAT32 path** (`embed-kernel = false`): SD init, FAT32 mount, read `CFG_KERNEL_FILENAME` into staging (`CFG_KERNEL_STAGING_ADDR`), validate NKRN, `bl_load_kernel()`
+    - **Embedded path** (`embed-kernel = true`): use the linked-in packed kernel image, validate NKRN, `bl_load_kernel()`
+    - then fill mailbox fields in `boot_info_t`, countdown, `bl_boot_kernel(entry, &boot_info)`
   - `bootloader.c` — `bl_load_kernel(src, out_info)`: validate NKRN magic, version, size, CRC32 of payload; copy payload to header.load_addr; write `boot_info_t` at BOOT_INFO_ADDR (0x1000); `bl_boot_kernel(entry_addr, info)`: dsb/isb, call kernel with x0 = info
 - **Key Responsibilities**:
   1. Bring up UART and print system/boot info
   2. Get board and memory info via mailbox
   3. Initialise SD card and mount first FAT32 partition
-  4. Load ATOM.BIN into staging at 0x100000, validate NKRN, copy payload to load address (0x200000), fill boot_info at 0x1000
+  4. Load packed kernel into staging (or use embedded image), validate NKRN, copy payload to load address (0x200000), fill boot_info at 0x1000
   5. Jump to kernel entry with x0 = pointer to boot_info_t
 
 ---
@@ -143,7 +153,7 @@ graph TD
   - `kernel_main.c` — Inline UART/GPIO init (0x3F201000, 115200), print banner and boot_info fields, then heartbeat dots over UART
   - `linker/kernel.ld` — VMA 0x200000; sections .text.kernel_entry, .text, .rodata, .data, .bss
 - **Purpose**: Prove that the bootloader loads a packed image from SD, validates it, copies to 0x200000, and passes boot_info in x0
-- **Build**: Linked as raw binary, then packed with `pack_kernel.py` (load/entry 0x200000) to produce `atom.bin`, which is placed on the SD image as ATOM.BIN
+- **Build**: Linked as raw binary, then packed with `pack_kernel.py` (load/entry 0x200000) to produce a packed kernel file (`K_BIN`, default `bin/atom.bin`). The SD image (when used) copies that file into the FAT32 root as the name configured by `kernel_filename`.
 
 ---
 
@@ -156,8 +166,12 @@ flowchart TD
     UART --> MBOX["Mailbox<br/>- Board revision<br/>- ARM memory size"]
     MBOX --> SD["SD card init<br/>- sdcard_init()"]
     SD --> FAT["FAT32 mount<br/>- fat32_mount()"]
-    FAT --> READ["Read ATOM.BIN<br/>- fat32_read_file to 0x100000"]
-    READ --> VALIDATE{NKRN valid?}
+    SD --> MODE{embed-kernel?}
+    MODE -->|true| READ_EMB["Use embedded packed kernel<br/>- build/kernel_embed.bin linked into kernel8.img"]
+    MODE -->|false| FAT["FAT32 mount<br/>- fat32_mount()"]
+    FAT --> READ_SD["Read kernel_filename<br/>- fat32_read_file to staging"]
+    READ_EMB --> VALIDATE{NKRN valid?}
+    READ_SD --> VALIDATE{NKRN valid?}
     VALIDATE -->|No| HALT([Halt])
     VALIDATE -->|Yes| LOAD["neutron/bootloader.c<br/>- bl_load_kernel<br/>- CRC32, copy to 0x200000<br/>- Fill boot_info at 0x1000"]
     LOAD --> JUMP["bl_boot_kernel<br/>- x0 = boot_info*<br/>- Jump to 0x200000"]
@@ -194,7 +208,7 @@ graph LR
     end
     subgraph Output
         BLIMG["bin/kernel8.img"]
-        ATOM["bin/atom.bin"]
+        ATOM["K_BIN (default bin/atom.bin)"]
         SDIMG["bin/sd.img"]
     end
 
@@ -214,7 +228,8 @@ graph LR
     KLLD --> KRE
     KRE --> KRB
     KRB -->|pack_kernel.py| ATOM
-    ATOM --> SDIMG
+    ATOM -->|mcopy as kernel_filename| SDIMG
+    ATOM -->|embed-kernel=true: stage + objcopy| BLIMG
 ```
 
 ---
@@ -225,8 +240,8 @@ graph LR
 
 - **0x00000000 – 0x3EFFFFFF**: RAM (1 GiB on raspi3b)
 - **0x80000**: Bootloader load address (`kernel8.img`). Stack grows downward from here.
-- **0x100000**: Kernel staging. ATOM.BIN is read from SD into this region; bootloader parses NKRN header here and copies payload to load address.
-- **0x200000**: Kernel load and entry address. Payload of ATOM.BIN is copied here; bootloader jumps to this address with x0 = boot_info*.
+- **0x100000**: Kernel staging (SD path). The file named by `kernel_filename` is read from SD into this region; bootloader parses the NKRN header here and copies payload to the load address.
+- **0x200000**: Kernel load and entry address. The NKRN payload is copied here; bootloader jumps to this address with x0 = boot_info*.
 - **0x1000**: `boot_info_t` structure filled by the bootloader (magic, board_revision, arm_mem_size, kernel_load_addr, kernel_entry_addr, kernel_size, bootloader_version string).
 - **0x3F000000**: BCM2837 peripheral base (MMIO).
 - **0x3F200000**: GPIO.
@@ -242,7 +257,7 @@ graph LR
            | Stack (down)       |
            +--------------------+
 0x00100000 +--------------------+
-           | Staging (ATOM.BIN) |  FAT32 read buffer; NKRN header parsed here
+           | Staging (SD load)  |  FAT32 read buffer; NKRN header parsed here
            +--------------------+
 0x00200000 +--------------------+
            | Kernel payload     |  Copied here; entry point
@@ -263,14 +278,14 @@ graph LR
 | Component | Location | Responsibility |
 |-----------|----------|-----------------|
 | **CPU / EL** | `boot/start.S` | Park secondaries, EL2→EL1, MMU/cache off, stack, BSS, call neutron_main |
-| **Bootloader entry** | `neutron/main.c` | UART, banner, mailbox, SD init, FAT32 mount, load ATOM.BIN, NKRN check, bl_load_kernel, bl_boot_kernel |
+| **Bootloader entry** | `neutron/main.c` | UART, banner, mailbox, then either embedded-kernel path or SD+FAT32 load of `kernel_filename`, NKRN check, bl_load_kernel, bl_boot_kernel |
 | **Kernel load** | `neutron/bootloader.c` | NKRN validation, CRC32, copy payload to load_addr, fill boot_info at 0x1000, jump with x0 = boot_info |
 | **UART** | `driver/uart.c` | PL011 at 0x3F201000, GPIO 14/15 ALT0, 115200 8N1 |
 | **GPIO** | `driver/gpio.c` | Function select, pull-up/down for UART pins |
 | **Mailbox** | `driver/mbox.c` | Board revision, ARM memory size |
 | **SD card** | `driver/sdcard.c` | Init and block read |
-| **FAT32** | `driver/fat32.c` | Mount first partition, read file by name (ATOM.BIN) |
-| **Platform** | `include/platform.h` | Addresses and register offsets for BCM2837 |
+| **FAT32** | `driver/fat32.c` | Mount first partition, read file by name (`kernel_filename`) |
+| **Platform** | `internal/platform.h` + `include/neutron.h` | Addresses and register offsets for BCM2837 |
 | **Test kernel** | `test_kernel/` | Receives boot_info in x0, prints it, heartbeat |
 
 ---
