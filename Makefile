@@ -29,7 +29,7 @@ SIZE    := $(CROSS)size
 BOOT_DIR    := boot
 DRIVER_DIR  := driver
 NEUTRON_DIR := neutron
-INCLUDE_DIR := include
+INCLUDE_DIR := internal
 LINKER_DIR  := linker
 KERNEL_DIR  := test_kernel
 BUILD_DIR   := build
@@ -93,7 +93,13 @@ BL_IMG      := $(BIN_DIR)/kernel8.img
 
 K_RAW_ELF   := $(BUILD_DIR)/kernel_raw.elf
 K_RAW_BIN   := $(BUILD_DIR)/kernel_raw.bin
-K_BIN       := $(BIN_DIR)/atom.bin
+# Packed kernel output (host file). Override at invocation time:
+#   make K_BIN=out/mykernel.bin all
+K_BIN       ?= $(BIN_DIR)/atom.bin
+
+# Fixed path used for embedded-kernel builds to keep objcopy-generated
+# symbols stable regardless of the host output path of $(K_BIN).
+KERNEL_EMBED_BIN := $(BUILD_DIR)/kernel_embed.bin
 
 SD_IMG      := $(BIN_DIR)/sd.img
 SD_SIZE_MB  := 64
@@ -121,12 +127,14 @@ CFLAGS      := $(ARCH_FLAGS) \
                -O2 \
                -g \
                -I$(INCLUDE_DIR) \
+               -Iinclude \
                -isystem $(shell $(CC) -print-file-name=include)
 
 ASFLAGS     := $(ARCH_FLAGS) \
                -ffreestanding \
                -nostdlib \
                -I$(INCLUDE_DIR) \
+               -Iinclude \
                -D__ASSEMBLER__
 
 BL_LDFLAGS  := -nostdlib \
@@ -201,7 +209,12 @@ $(BL_IMG): $(BL_ELF)
 	@$(OBJCOPY) -O binary $< $@
 
 ifeq ($(EMBED_KERNEL),1)
-$(BL_EMBED_OBJ): $(K_BIN)
+$(KERNEL_EMBED_BIN): $(K_BIN)
+	@mkdir -p $(dir $@)
+	@echo "[EMBED] staging $< -> $@"
+	@cp $< $@
+
+$(BL_EMBED_OBJ): $(KERNEL_EMBED_BIN)
 	@mkdir -p $(dir $@)
 	@echo "[EMBED] $< -> $@"
 	@$(OBJCOPY) -I binary -O elf64-littleaarch64 -B aarch64 $< $@
@@ -223,7 +236,7 @@ $(K_RAW_BIN): $(K_RAW_ELF)
 	@$(OBJCOPY) -O binary $< $@
 
 $(K_BIN): $(K_RAW_BIN)
-	@mkdir -p $(BIN_DIR)
+	@mkdir -p $(dir $@)
 	@echo "[PKG] $@ (packing NKRN header)"
 	@python3 pack_kernel.py $< -o $@ -n "Neutron Test Kernel"
 
@@ -233,7 +246,7 @@ $(K_BIN): $(K_RAW_BIN)
 sd-image: $(SD_IMG)
 
 $(SD_IMG): $(K_BIN)
-	@mkdir -p $(BIN_DIR)
+	@mkdir -p $(dir $@)
 	@echo "[SD]  Creating $(SD_SIZE_MB) MiB SD image: $@"
 	dd if=/dev/zero of=$@ bs=1M count=$(SD_SIZE_MB) status=none
 	parted -s $@ mklabel msdos
@@ -274,6 +287,7 @@ $(BUILD_DIR)/%.o: %.S
 # ----------------------------------------------------------------
 qemu-rpi: all
 	$(QEMU) $(QEMU_FLAGS)
+
 qemu-rpi-no-build:
 	$(QEMU) $(QEMU_FLAGS)
 # ----------------------------------------------------------------
