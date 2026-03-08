@@ -223,8 +223,47 @@ try {
             }
         }
         
+        # Parse --kernel <path> and --pack from ExtraArgs
+        $KernelPath = $null
+        $DoPack = $false
+        $FilteredArgs = @()
+        $i = 0
+        while ($i -lt $ExtraArgs.Count) {
+            switch ($ExtraArgs[$i]) {
+                "--kernel" {
+                    $i++
+                    if ($i -lt $ExtraArgs.Count) {
+                        $KernelPath = $ExtraArgs[$i]
+                    }
+                }
+                "--pack" {
+                    $DoPack = $true
+                }
+                default {
+                    $FilteredArgs += $ExtraArgs[$i]
+                }
+            }
+            $i++
+        }
+        
         $makeArgs = @()
-        if ($ExtraArgs) { $makeArgs = $ExtraArgs }
+        if ($FilteredArgs) { $makeArgs = $FilteredArgs }
+        
+        if ($KernelPath) {
+            if (-not (Test-Path $KernelPath)) {
+                Write-Error "[BUILD] ERROR: Kernel file not found: $KernelPath"
+                exit 1
+            }
+            $dest = Join-Path $BIN_DIR "custom_kernel.bin"
+            Write-Host "[BUILD] Staging external kernel: $KernelPath -> $dest"
+            Copy-Item -Path $KernelPath -Destination $dest -Force
+            $makeArgs += "K_BIN=bin/custom_kernel.bin"
+        }
+        
+        if ($DoPack) {
+            $makeArgs += "PACK=1"
+        }
+        
         Write-Host "[BUILD] make $Target $($makeArgs -join ' ')"
         Docker-RunCmd ("make " + $Target + " " + ($makeArgs -join ' '))
     }
@@ -336,7 +375,7 @@ try {
         docker run --rm -it `
         --mount type=bind,src="$ProjectPath",dst=/Neutron `
         $ImageLatest `
-        bash -c "make qemu-rpi-no-build"
+        bash -c "make qemu-rpi"
         
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     }
@@ -354,7 +393,7 @@ try {
         Write-Host ""
         
         Write-Host "Build Commands:"
-        Write-Host "  build               Build inside Docker"
+        Write-Host "  build [target] [options] [make-vars...]  Build inside Docker"
         Write-Host "    all               [Default] Build all artifacts"
         Write-Host "    bootloader        Build kernel8.img only"
         Write-Host "    kernel            Build packed test kernel (outputs bin/atom.bin)"
@@ -362,9 +401,14 @@ try {
         Write-Host "    clean             Remove build artifacts"
         Write-Host "    size              Show section sizes"
         Write-Host ""
+        Write-Host "  Options:"
+        Write-Host "    --kernel <path>          Use a prebuilt packed NKRN kernel (skips test_kernel build)"
+        Write-Host "    --kernel <path> --pack   Treat binary as raw and pack it via pack_kernel.py"
+        Write-Host ""
         Write-Host "  Examples:"
-        Write-Host "    .\\neutron.ps1 build all"
-        Write-Host "    .\\neutron.ps1 build all K_BIN=/path/to/prebuilt_packed.bin"
+        Write-Host "    .\neutron.ps1 build all"
+        Write-Host "    .\neutron.ps1 build all --kernel C:\path\to\prebuilt.bin"
+        Write-Host "    .\neutron.ps1 build all --kernel C:\path\to\raw.bin --pack"
         Write-Host ""
         
         Write-Host "Run (QEMU - Host):"

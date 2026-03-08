@@ -108,8 +108,18 @@ ifeq ($(origin K_BIN),command line)
 USE_PREBUILT_KERNEL := 1
 endif
 
+# PACK=1  alongside K_BIN=<path> : treat the provided path as a raw (unpacked)
+#          binary and run pack_kernel.py on it before use.
+# PACK=0  (default) : treat K_BIN as an already-packed NKRN image.
+# NOTE: When using neutron.sh / neutron.ps1, pass --pack instead of PACK=1.
+PACK ?= 0
+
 ifeq ($(USE_PREBUILT_KERNEL),1)
+ifeq ($(PACK),1)
+K_BIN_SRC := $(K_BIN_BUILT)
+else
 K_BIN_SRC := $(K_BIN)
+endif
 else
 K_BIN_SRC := $(K_BIN_BUILT)
 endif
@@ -242,9 +252,17 @@ endif
 # Kernel
 # ----------------------------------------------------------------
 ifeq ($(USE_PREBUILT_KERNEL),1)
+ifeq ($(PACK),1)
+kernel: $(K_BIN_BUILT)
+$(K_BIN_BUILT): $(K_BIN)
+	@mkdir -p $(dir $@)
+	@echo "[PKG] $@ (packing external kernel: $<)"
+	@python3 pack_kernel.py $< -o $@ -n "External Kernel"
+else
 kernel:
 	@test -f "$(K_BIN_SRC)" || (echo "[KERNEL] FATAL: prebuilt packed kernel not found: $(K_BIN_SRC)" && exit 1)
 	@echo "[KERNEL] Using prebuilt packed kernel: $(K_BIN_SRC)"
+endif
 else
 kernel: $(K_BIN_BUILT)
 endif
@@ -259,10 +277,16 @@ $(K_RAW_BIN): $(K_RAW_ELF)
 	@echo "[BIN] $@"
 	@$(OBJCOPY) -O binary $< $@
 
+# Only build K_BIN_BUILT from the test_kernel sources when NOT using a
+# prebuilt/external kernel. When USE_PREBUILT_KERNEL=1 + PACK=1 the rule
+# above (K_BIN_BUILT: K_BIN) already covers this; leaving the rule
+# unconditional would give Make two recipes for the same target.
+ifeq ($(USE_PREBUILT_KERNEL),0)
 $(K_BIN_BUILT): $(K_RAW_BIN)
 	@mkdir -p $(dir $@)
 	@echo "[PKG] $@ (packing NKRN header)"
 	@python3 pack_kernel.py $< -o $@ -n "Neutron Test Kernel"
+endif
 
 # ----------------------------------------------------------------
 # SD Image
@@ -309,10 +333,10 @@ $(BUILD_DIR)/%.o: %.S
 # ----------------------------------------------------------------
 # QEMU
 # ----------------------------------------------------------------
-qemu-rpi: all check-qemu
+qemu-rpi: check-qemu
 	$(QEMU) $(QEMU_FLAGS)
 
-qemu-rpi-no-build: check-qemu
+qemu-rpi-build: all check-qemu
 	$(QEMU) $(QEMU_FLAGS)
 # ----------------------------------------------------------------
 # Tool checks
@@ -390,6 +414,10 @@ help:
 		@echo "  make qemu-rpi         Boot in QEMU (SD card path)"
 		@echo "  make size             Section sizes for both"
 		@echo "  make clean            Remove all build artefacts"
+		@echo ""
+		@echo "External kernel options:"
+		@echo "  K_BIN=<path>          Use a prebuilt packed NKRN kernel image (skips test_kernel build)"
+		@echo "  K_BIN=<path> PACK=1   Use a raw (unpacked) binary and pack it with pack_kernel.py"
 		@echo ""
 		@echo "  SD image tools needed:"
 		@echo "    sudo apt install parted mtools dosfstools"

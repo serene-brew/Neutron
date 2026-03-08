@@ -188,9 +188,28 @@ neutron_docker() {
 # Build Inside Docker
 # ----------------------------------------------------------------
 neutron_build() {
-  Target="${1:-all}"
-  shift || true
-  MakeArgs=("$@")
+  # Parse --kernel <path> and --pack before extracting the build target
+  KernelPath=""
+  DoPack=0
+  ParsedArgs=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --kernel)
+        shift
+        KernelPath="${1:-}"
+        ;;
+      --pack)
+        DoPack=1
+        ;;
+      *)
+        ParsedArgs+=("$1")
+        ;;
+    esac
+    shift || true
+  done
+
+  Target="${ParsedArgs[0]:-all}"
+  MakeArgs=("${ParsedArgs[@]:1}")
 
   case "$Target" in
   all | bootloader | kernel | sd-image | clean | size) ;;
@@ -207,6 +226,20 @@ neutron_build() {
     exit 1
     ;;
   esac
+
+  if [[ -n "$KernelPath" ]]; then
+    if [[ ! -f "$KernelPath" ]]; then
+      echo "[BUILD] ERROR: Kernel file not found: $KernelPath"
+      exit 1
+    fi
+    echo "[BUILD] Staging external kernel: $KernelPath -> $BIN_DIR/custom_kernel.bin"
+    cp "$KernelPath" "$BIN_DIR/custom_kernel.bin"
+    MakeArgs+=("K_BIN=bin/custom_kernel.bin")
+  fi
+
+  if [[ $DoPack -eq 1 ]]; then
+    MakeArgs+=("PACK=1")
+  fi
 
   echo "[BUILD] make $Target ${MakeArgs[*]}"
   docker_run_cmd "make $Target ${MakeArgs[*]}"
@@ -334,7 +367,7 @@ neutron_run_docker() {
     --user "$(id -u):$(id -g)" \
     --mount type=bind,src="$ProjectPath",dst=/Neutron \
     "$ImageLatest" \
-    bash -c "make qemu-rpi-no-build"
+    bash -c "make qemu-rpi"
 }
 
 # ----------------------------------------------------------------
@@ -349,7 +382,7 @@ show_help() {
   echo
 
   echo "Build Commands:"
-  echo "  build [target] [make-vars...]  Build inside Docker"
+  echo "  build [target] [options] [make-vars...]  Build inside Docker"
   echo "    all                   [Default] Build all artifacts"
   echo "    bootloader            Build kernel8.img only"
   echo "    kernel                Build packed test kernel (outputs bin/atom.bin)"
@@ -357,9 +390,14 @@ show_help() {
   echo "    clean                 Remove build artifacts"
   echo "    size                  Show section sizes"
   echo
+  echo "  Options:"
+  echo "    --kernel <path>       Use a prebuilt packed NKRN kernel (skips test_kernel build)"
+  echo "    --kernel <path> --pack  Treat binary as raw and pack it via pack_kernel.py"
+  echo
   echo "  Examples:"
   echo "    ./neutron.sh build all"
-  echo "    ./neutron.sh build all K_BIN=/path/to/prebuilt_packed.bin"
+  echo "    ./neutron.sh build all --kernel /path/to/prebuilt.bin"
+  echo "    ./neutron.sh build all --kernel /path/to/raw.bin --pack"
   echo
 
   echo "Run (QEMU - Host):"
