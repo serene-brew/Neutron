@@ -14,7 +14,6 @@
  * Stack is set up just below our load address (0x200000).
  * ================================================================ */
 
-.section ".text.kernel_entry"
 .global kernel_start
 
 kernel_start:

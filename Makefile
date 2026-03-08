@@ -7,7 +7,7 @@
 # License      : BSD-3-Clause
 #
 # Target  : Raspberry Pi Zero 2W  (BCM2710, ARMv8 / AArch64)
-# Toolchain: aarch64-linux-gnu-  (or aarch64-none-elf-)
+# Toolchain: aarch64-none-elf-, parted, mtools, dosfstools, qemu-system-aarch64
 # QEMU    : qemu-system-aarch64  -machine raspi3b
 # =============================================================================
 
@@ -51,7 +51,7 @@ build.mk $(CONFIG_H): build.cfg
 
 -include $(BUILD_MK)
 
-KERNEL_FILENAME ?= ATOM.BIN
+KERNEL_FILENAME ?= atom.bin
 EMBED_KERNEL ?= 0
 
 # ----------------------------------------------------------------
@@ -78,7 +78,7 @@ endif
 # ----------------------------------------------------------------
 # Kernel sources
 # ----------------------------------------------------------------
-K_ASM_SRCS  := $(KERNEL_DIR)/boot/kernel_start.S
+K_ASM_SRCS  = $(KERNEL_DIR)/boot/kernel_start.S
 K_C_SRCS    := $(KERNEL_DIR)/kernel_main.c
 
 K_ASM_OBJS  := $(patsubst %.S,$(BUILD_DIR)/%.o,$(K_ASM_SRCS))
@@ -96,11 +96,11 @@ K_RAW_BIN   := $(BUILD_DIR)/kernel_raw.bin
 # Packed kernel image to boot (host file).
 #
 # - Default (no override): build the bundled test_kernel and pack it to:
-#     bin/atom.bin
+#     bin/$(KERNEL_FILENAME)
 # - If you pass K_BIN on the command line, Neutron will use that *prebuilt*
 #   packed NKRN image and will NOT build test_kernel:
 #     make all K_BIN=/path/to/prebuilt_packed.bin
-K_BIN_BUILT := $(BIN_DIR)/atom.bin
+K_BIN_BUILT := $(BIN_DIR)/$(KERNEL_FILENAME)
 K_BIN       ?= $(K_BIN_BUILT)
 
 USE_PREBUILT_KERNEL := 0
@@ -191,15 +191,16 @@ QEMU_FLAGS  := -machine $(QEMU_MACHINE) \
 # Phony targets
 # ----------------------------------------------------------------
 .PHONY: all bootloader kernel sd-image clean \
-        qemu-rpi qemu-rpi-debug disasm size help
+        qemu-rpi qemu-rpi-debug disasm size help \
+        check-tools check-cross-tools check-python check-sd-tools check-qemu
 
 # ----------------------------------------------------------------
 # Default target
 # ----------------------------------------------------------------
 ifeq ($(EMBED_KERNEL),1)
-all: build.mk bootloader kernel
+all: check-tools build.mk bootloader kernel
 else
-all: build.mk bootloader kernel sd-image
+all: check-tools build.mk bootloader kernel sd-image
 endif
 	@echo ""
 	@echo "Neutron build complete!"
@@ -308,11 +309,56 @@ $(BUILD_DIR)/%.o: %.S
 # ----------------------------------------------------------------
 # QEMU
 # ----------------------------------------------------------------
-qemu-rpi: all
+qemu-rpi: all check-qemu
 	$(QEMU) $(QEMU_FLAGS)
 
-qemu-rpi-no-build:
+qemu-rpi-no-build: check-qemu
 	$(QEMU) $(QEMU_FLAGS)
+# ----------------------------------------------------------------
+# Tool checks
+# ----------------------------------------------------------------
+check-tools: check-cross-tools check-python
+ifeq ($(EMBED_KERNEL),0)
+check-tools: check-sd-tools
+endif
+	@echo "[CHK] All required tools present."
+
+check-cross-tools:
+	@echo "[CHK] Checking cross-toolchain (CROSS=$(CROSS))..."
+	@for tool in '$(CC)' '$(LD)' '$(OBJCOPY)' '$(OBJDUMP)' '$(SIZE)'; do \
+	    command -v $$tool >/dev/null 2>&1 \
+	        || { echo "  [MISSING] $$tool"; \
+	             echo "  Hint: install the aarch64-none-elf- toolchain"; \
+	             exit 1; }; \
+	    echo "  [OK] $$tool"; \
+	done
+
+check-python:
+	@echo "[CHK] Checking Python..."
+	@command -v python3 >/dev/null 2>&1 \
+	    || { echo "  [MISSING] python3"; \
+	         echo "  Hint: sudo apt install python3"; \
+	         exit 1; }
+	@echo "  [OK] python3"
+
+check-sd-tools:
+	@echo "[CHK] Checking SD image tools..."
+	@for tool in dd parted mformat mcopy mdir; do \
+	    command -v $$tool >/dev/null 2>&1 \
+	        || { echo "  [MISSING] $$tool"; \
+	             echo "  Hint: sudo apt install parted mtools dosfstools"; \
+	             exit 1; }; \
+	    echo "  [OK] $$tool"; \
+	done
+
+check-qemu:
+	@echo "[CHK] Checking QEMU..."
+	@command -v $(QEMU) >/dev/null 2>&1 \
+	    || { echo "  [MISSING] $(QEMU)"; \
+	         echo "  Hint: sudo apt install qemu-system-arm"; \
+	         exit 1; }
+	@echo "  [OK] $(QEMU)"
+
 # ----------------------------------------------------------------
 # Size
 # ----------------------------------------------------------------
@@ -339,7 +385,7 @@ help:
 		@echo ""
 		@echo "  make all              Build bootloader + kernel $(if $(filter 1,$(EMBED_KERNEL)),(embedded kernel),+ sd.img) (default)"
 		@echo "  make bootloader       Build kernel8.img only"
-		@echo "  make kernel           Build atom.bin only"
+		@echo "  make kernel           Build kernel.bin only"
 		@echo "  make sd-image         Create sd.img FAT32 disk with $(KERNEL_FILENAME)"
 		@echo "  make qemu-rpi         Boot in QEMU (SD card path)"
 		@echo "  make size             Section sizes for both"

@@ -144,17 +144,18 @@ void neutron_main(void) {
 
   if (rc != FAT32_OK) {
     uart_printf(CFG_ANSI_RED
-                "[BL] FATAL: atom.bin not found on SD card (error %d)\n"
+                "[BL] FATAL: %s not found on SD card (error %d)\n"
                 "[BL]        Ensure kernel.bin is in the FAT32 root "
-                "directory.\n" CFG_ANSI_RESET,
+                "directory.\n" CFG_ANSI_RESET, 
+                CFG_KERNEL_FILENAME,
                 rc);
     uart_puts("[BL] System halted.\n");
     while (1)
       __asm__ volatile("wfe");
   }
 
-  uart_printf(CFG_ANSI_YELLOW "[BL] atom.bin loaded: %u bytes at 0x%X\n" CFG_ANSI_RESET,
-              bytes_loaded, (uint32_t)CFG_KERNEL_STAGING_ADDR);
+  uart_printf(CFG_ANSI_YELLOW "[BL] %s loaded: %u bytes at 0x%X\n" CFG_ANSI_RESET, 
+              CFG_KERNEL_FILENAME, bytes_loaded, (uint32_t)CFG_KERNEL_STAGING_ADDR);
 
   nkrn_src = (uintptr_t)CFG_KERNEL_STAGING_ADDR;
 #endif
