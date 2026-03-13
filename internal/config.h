@@ -8,8 +8,8 @@
 #define CFG_KERNEL_MAX_SIZE      0x400000UL
 #define CFG_LOG_LEVEL            0
 #define CFG_ANSI_COLORS         1
-#define CFG_BANNER_TEXT         "Neutron Bootloader  v1.1.4"
-#define CFG_BOOTLOADER_VERSION  "Neutron-1.1.4"
+#define CFG_BANNER_TEXT         "Neutron Bootloader  v1.2.0"
+#define CFG_BOOTLOADER_VERSION  "Neutron-1.2.0"
 #define CFG_KERNEL_VERSION      "v1.0"
 #define CFG_KERNEL_VERSION_MAJOR 1
 #define CFG_KERNEL_VERSION_MINOR 0
