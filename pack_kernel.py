@@ -159,14 +159,14 @@ def main():
         f.write(packed)
 
     crc = crc32_ieee(raw)
-    print(f"Packed kernel image written to: {args.output}")
-    print(f"  Name       : {args.name}")
-    print(f"  Version    : {args.version_major}.{args.version_minor}")
-    print(f"  Load addr  : {hex(load_addr)}")
-    print(f"  Entry addr : {hex(entry_addr)}")
-    print(f"  Payload    : {len(raw)} bytes")
-    print(f"  CRC32      : 0x{crc:08X}")
-    print(f"  Total size : {len(packed)} bytes  (header={KERNEL_HEADER_SIZE} + payload={len(raw)})")
+    print(f"[PKG] Packed kernel image written to: {args.output}")
+    print(f"  -- Name       : {args.name}")
+    print(f"  -- Version    : {args.version_major}.{args.version_minor}")
+    print(f"  -- Load addr  : {hex(load_addr)}")
+    print(f"  -- Entry addr : {hex(entry_addr)}")
+    print(f"  -- Payload    : {len(raw)} bytes")
+    print(f"  -- CRC32      : 0x{crc:08X}")
+    print(f"  -- Total size : {len(packed)} bytes  (header={KERNEL_HEADER_SIZE} + payload={len(raw)})")
     print()
 
 if __name__ == '__main__':
