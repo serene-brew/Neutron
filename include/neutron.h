@@ -32,9 +32,10 @@ typedef struct {
   uint32_t kernel_entry_addr;
   uint32_t kernel_size;
   char bootloader_version[16]; /* 15 chars + NUL */
+  char kernel_version[16];     /* kernel version from NKRN header, 15 chars + NUL */
 } __attribute__((packed)) boot_info_t;
 
-_Static_assert(sizeof(boot_info_t) == 40, "boot_info_t ABI size mismatch");
+_Static_assert(sizeof(boot_info_t) == 56, "boot_info_t ABI size mismatch");
 
 /* =========================
  * Common MMIO/platform defs
