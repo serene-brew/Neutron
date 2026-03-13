@@ -75,6 +75,28 @@ static void *bl_memset(void *dst, int c, size_t n) {
 }
 
 /* ----------------------------------------------------------------
+ * bl_uint_to_str()
+ *   Writes the decimal representation of `val` into `buf` (no NUL).
+ *   Returns the number of characters written.
+ * ---------------------------------------------------------------- */
+static int bl_uint_to_str(uint32_t val, char *buf) {
+  if (val == 0) {
+    buf[0] = '0';
+    return 1;
+  }
+  char tmp[10];
+  int len = 0;
+  while (val > 0) {
+    tmp[len++] = '0' + (char)(val % 10);
+    val /= 10;
+  }
+  /* reverse */
+  for (int i = 0; i < len; i++)
+    buf[i] = tmp[len - 1 - i];
+  return len;
+}
+
+/* ----------------------------------------------------------------
  * bl_load_kernel()
  *
  *  src  - pointer to the start of the kernel image in memory.
@@ -150,6 +172,20 @@ int bl_load_kernel(uintptr_t src, boot_info_t *out_info) {
     bl_memcpy(info->bootloader_version, (const void *)ver, n);
     info->bootloader_version[n] = '\0';
   }
+
+  /* Format kernel version from NKRN header as "vMAJOR.MINOR" */
+  {
+    uint32_t major = (hdr->version >> 16) & 0xFFFFu;
+    uint32_t minor = hdr->version & 0xFFFFu;
+    char *kv = info->kernel_version;
+    int pos = 0;
+    kv[pos++] = 'v';
+    pos += bl_uint_to_str(major, kv + pos);
+    kv[pos++] = '.';
+    pos += bl_uint_to_str(minor, kv + pos);
+    kv[pos] = '\0';
+  }
+  uart_printf("[BL] Kernel version : %s\n", info->kernel_version);
 
   if (out_info)
     bl_memcpy(out_info, info, sizeof(*info));
