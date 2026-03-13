@@ -52,7 +52,11 @@ build.mk $(CONFIG_H): build.cfg
 -include $(BUILD_MK)
 
 KERNEL_FILENAME ?= atom.bin
+KERNEL_VERSION ?= v1.0
+KERNEL_VERSION_MAJOR ?= 1
+KERNEL_VERSION_MINOR ?= 0
 EMBED_KERNEL ?= 0
+$(info [CFG] EMBED_KERNEL: $(if $(filter 1,$(EMBED_KERNEL)),true,false))
 
 # ----------------------------------------------------------------
 # Bootloader sources
@@ -213,10 +217,13 @@ else
 all: check-tools build.mk bootloader kernel sd-image
 endif
 	@echo ""
+	@echo "==========================================="
 	@echo "Neutron build complete!"
-	@echo "Bootloader : kernel8.img"
-	@echo "Kernel     : $(KERNEL_FILENAME) ($(if $(filter 1,$(EMBED_KERNEL)),embedded,inside sd.img))"
-	@echo "Run        : make qemu-rpi"
+	@echo "Run         : make qemu-rpi"
+	@echo "Kernel      : $(KERNEL_FILENAME) ($(if $(filter 1,$(EMBED_KERNEL)),embedded,inside sd.img))"
+	@echo "Bootloader  : kernel8.img"
+	@echo "EMBED_KERNEL: $(if $(filter 1,$(EMBED_KERNEL)),true,false)"
+	@echo "==========================================="
 
 # ----------------------------------------------------------------
 # Bootloader
@@ -257,7 +264,8 @@ kernel: $(K_BIN_BUILT)
 $(K_BIN_BUILT): $(K_BIN)
 	@mkdir -p $(dir $@)
 	@echo "[PKG] $@ (packing external kernel: $<)"
-	@python3 pack_kernel.py $< -o $@ -n "External Kernel"
+	@python3 pack_kernel.py $< -o $@ -n "External Kernel" \
+		--version-major $(KERNEL_VERSION_MAJOR) --version-minor $(KERNEL_VERSION_MINOR)
 else
 kernel:
 	@test -f "$(K_BIN_SRC)" || (echo "[KERNEL] FATAL: prebuilt packed kernel not found: $(K_BIN_SRC)" && exit 1)
@@ -274,8 +282,10 @@ $(K_RAW_ELF): $(K_OBJS)
 	@$(SIZE) $@
 
 $(K_RAW_BIN): $(K_RAW_ELF)
+	@echo ""
 	@echo "[BIN] $@"
 	@$(OBJCOPY) -O binary $< $@
+
 
 # Only build K_BIN_BUILT from the test_kernel sources when NOT using a
 # prebuilt/external kernel. When USE_PREBUILT_KERNEL=1 + PACK=1 the rule
@@ -285,7 +295,8 @@ ifeq ($(USE_PREBUILT_KERNEL),0)
 $(K_BIN_BUILT): $(K_RAW_BIN)
 	@mkdir -p $(dir $@)
 	@echo "[PKG] $@ (packing NKRN header)"
-	@python3 pack_kernel.py $< -o $@ -n "Neutron Test Kernel"
+	@python3 pack_kernel.py $< -o $@ -n "Neutron Test Kernel" \
+		--version-major $(KERNEL_VERSION_MAJOR) --version-minor $(KERNEL_VERSION_MINOR)
 endif
 
 # ----------------------------------------------------------------
@@ -296,11 +307,16 @@ sd-image: $(SD_IMG)
 $(SD_IMG): $(K_BIN_SRC)
 	@mkdir -p $(dir $@)
 	@echo "[SD]  Creating $(SD_SIZE_MB) MiB SD image: $@"
-	dd if=/dev/zero of=$@ bs=1M count=$(SD_SIZE_MB) status=none
-	parted -s $@ mklabel msdos
-	parted -s $@ mkpart primary fat32 1MiB 100%
-	mformat -i $@@@1M -F -v NEUTRON ::
-	mcopy -i $@@@1M $(K_BIN_SRC) ::$(KERNEL_FILENAME)
+	@echo "  -- dd if=/dev/zero of=$@ bs=1M count=$(SD_SIZE_MB) status=none"
+	@dd if=/dev/zero of=$@ bs=1M count=$(SD_SIZE_MB) status=none
+	@echo "  -- parted -s $@ mklabel msdos"
+	@parted -s $@ mklabel msdos
+	@echo "  -- parted -s $@ mkpart primary fat32 1MiB 100%"
+	@parted -s $@ mkpart primary fat32 1MiB 100%
+	@echo "  -- mformat -i $@@@1M -F -v NEUTRON ::"
+	@mformat -i $@@@1M -F -v NEUTRON ::
+	@echo "  -- mcopy -i $@@@1M $(K_BIN_SRC) ::$(KERNEL_FILENAME)"
+	@mcopy -i $@@@1M $(K_BIN_SRC) ::$(KERNEL_FILENAME)
 	@echo "[SD]  Contents:"
 	@mdir -i $@@@1M ::
 
@@ -346,6 +362,7 @@ ifeq ($(EMBED_KERNEL),0)
 check-tools: check-sd-tools
 endif
 	@echo "[CHK] All required tools present."
+	@echo ""
 
 check-cross-tools:
 	@echo "[CHK] Checking cross-toolchain (CROSS=$(CROSS))..."
