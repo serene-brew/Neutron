@@ -10,6 +10,9 @@
 #define CFG_ANSI_COLORS         1
 #define CFG_BANNER_TEXT         "Neutron Bootloader  v1.1.4"
 #define CFG_BOOTLOADER_VERSION  "Neutron-1.1.4"
+#define CFG_KERNEL_VERSION      "v1.0"
+#define CFG_KERNEL_VERSION_MAJOR 1
+#define CFG_KERNEL_VERSION_MINOR 0
 #define CFG_EMBED_KERNEL        0
 
 /* Log level constants */
