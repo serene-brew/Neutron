@@ -103,7 +103,9 @@ void kernel_main(boot_info_t *info) {
 
   puts("\n");
   puts("  +----------------------------------------------+\n");
-  puts("  |        Neutron ATOM Test Kernel  v1.0        |\n");
+  puts("  |        Neutron ATOM Test Kernel ");
+  puts(info->kernel_version);
+  puts("         |\n");
   puts("  |        AArch64 / Raspberry Pi Zero 2W        |\n");
   puts("  +----------------------------------------------+\n");
   puts("\n");
