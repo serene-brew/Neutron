@@ -204,7 +204,7 @@ QEMU_FLAGS  := -machine $(QEMU_MACHINE) \
 # ----------------------------------------------------------------
 # Phony targets
 # ----------------------------------------------------------------
-.PHONY: all bootloader kernel sd-image clean \
+.PHONY: all bootloader kernel sd-image clean debug clean-debug \
         qemu-rpi qemu-rpi-debug disasm size help \
         check-tools check-cross-tools check-python check-sd-tools check-qemu
 
@@ -410,6 +410,95 @@ size: $(BL_ELF) $(K_RAW_ELF)
 	@$(SIZE) -A $(K_RAW_ELF)
 
 # ----------------------------------------------------------------
+# Debug
+# ----------------------------------------------------------------
+debug: CFLAGS += -g -O0 -DDEBUG
+debug: $(BL_ELF) $(K_RAW_ELF)
+	@mkdir -p debug/linkermap debug/drivers debug/bootloader debug/kernel debug/symbols debug/disasm debug/elf
+
+	@echo "=== Generating Debug Artifacts ==="
+	@echo ""
+
+	@echo "[DBG] Bootloader artifacts..."
+	@cp $(BL_ELF) debug/elf/neutron.elf
+	@echo "    => $(OBJDUMP) -d -S -l $(BL_ELF) > debug/disasm/neutron.disasm"
+	@$(OBJDUMP) -d -S -l $(BL_ELF) > debug/disasm/neutron.disasm
+	@echo "    => $(CROSS)readelf --debug-dump=info $(BL_ELF) > debug/elf/neutron.elf.info"
+	@$(CROSS)readelf --debug-dump=info $(BL_ELF) > debug/elf/neutron.elf.info
+	@echo "    => $(CROSS)readelf -a $(BL_ELF) > debug/elf/neutron.elf.full"
+	@$(CROSS)readelf -a $(BL_ELF) > debug/elf/neutron.elf.full
+	@echo "   [OK] Bootloader ELF + disassembly + debug info"
+	@echo ""
+
+	@echo "[DBG] Linker maps..."
+	@test -f build/neutron.map && cp build/neutron.map debug/linkermap/ || true
+	@test -f build/kernel.map && cp build/kernel.map debug/linkermap/ || true
+	@echo "   [OK] Maps: neutron.map, kernel.map"
+	@echo ""
+
+	@echo "[DBG] Driver disassembly (per-module)..."
+	@for drivsrc in $(DRIVER_DIR)/*.c; do \
+	    drivname=$$(basename $$drivsrc .c); \
+	    drivobj=$(BUILD_DIR)/$$(dirname $$drivsrc)/$$(basename $$drivsrc .c).o; \
+	    if [ -f $$drivobj ]; then \
+	        $(OBJDUMP) -d -S -l $$drivobj > debug/drivers/$${drivname}.dis; \
+	        echo "   [OK] $$drivname.dis"; \
+	    fi; \
+	done
+	@echo ""
+
+	@echo "[DBG] Kernel artifacts..."
+	@cp $(K_RAW_ELF) debug/elf/kernel.elf
+	@echo "    => $(OBJDUMP) -d -S -l $(K_RAW_ELF) > debug/disasm/kernel.disasm"
+	@$(OBJDUMP) -d -S -l $(K_RAW_ELF) > debug/disasm/kernel.disasm
+	@echo "    => $(CROSS)readelf --debug-dump=info $(K_RAW_ELF) > debug/elf/kernel.elf.info"
+	@$(CROSS)readelf --debug-dump=info $(K_RAW_ELF) > debug/elf/kernel.elf.info
+	@echo "    => $(CROSS)readelf -a $(K_RAW_ELF) > debug/elf/kernel.elf.full"
+	@$(CROSS)readelf -a $(K_RAW_ELF) > debug/elf/kernel.elf.full
+	@echo "   [OK] Kernel ELF + disassembly + debug info"
+	@echo ""
+
+	@echo "[DBG] Symbol tables..."
+	@echo "    => $(CROSS)nm -C -l -n -S $(BL_ELF) > debug/symbols/neutron.symbols"
+	@$(CROSS)nm -C -l -n -S $(BL_ELF) > debug/symbols/neutron.symbols
+	@echo "    => $(CROSS)nm -C -l -n -S $(K_RAW_ELF) > debug/symbols/kernel.symbols"
+	@$(CROSS)nm -C -l -n -S $(K_RAW_ELF) > debug/symbols/kernel.symbols
+	@echo "   [OK] Symbol tables with line info"
+	@echo ""
+
+	@echo "[DBG] Size analysis..."
+	@echo "    => $(SIZE) -A $(BL_ELF) > debug/bootloader/size"
+	@$(SIZE) -A $(BL_ELF) > debug/bootloader/size
+	@echo "    => $(SIZE) -A $(K_RAW_ELF) > debug/kernel/size"
+	@$(SIZE) -A $(K_RAW_ELF) > debug/kernel/size
+	@echo "   [OK] Section size summaries"
+	@echo ""
+
+	@echo "[DBG] Binary info..."
+	@echo "    => $(OBJDUMP) -f $(BL_ELF) > debug/bootloader/info"
+	@$(OBJDUMP) -f $(BL_ELF) > debug/bootloader/info
+	@echo "    => $(OBJDUMP) -f $(K_RAW_ELF) > debug/kernel/info"
+	@$(OBJDUMP) -f $(K_RAW_ELF) > debug/kernel/info
+	@echo "   [OK] Entry points & binary information"
+	@echo ""
+
+	@echo "[DBG] Build manifest..."
+	@echo "Build Date   : $$(date)" > debug/DEBUG_MANIFEST.txt
+	@echo "Build Type   : Debug" >> debug/DEBUG_MANIFEST.txt
+	@echo "Flags        : -O0 -g -DDEBUG" >> debug/DEBUG_MANIFEST.txt
+	@echo "Configuration:" >> debug/DEBUG_MANIFEST.txt
+	@cat build.cfg >> debug/DEBUG_MANIFEST.txt
+	@echo "" >> debug/DEBUG_MANIFEST.txt
+	@echo "=== Debug Directory Structure ===" >> debug/DEBUG_MANIFEST.txt
+	@tree -L 2 debug/ >> debug/DEBUG_MANIFEST.txt 2>/dev/null || find debug -type f | sort >> debug/DEBUG_MANIFEST.txt
+	@echo "   [OK] Manifest with config snapshot"
+	@echo ""
+	@echo "=== Debug Build Complete ==="
+
+clean-debug:
+	rm -rf debug/*
+
+# ----------------------------------------------------------------
 # Clean
 # ----------------------------------------------------------------
 clean:
@@ -430,6 +519,8 @@ help:
 		@echo "  make sd-image         Create sd.img FAT32 disk with $(KERNEL_FILENAME)"
 		@echo "  make qemu-rpi         Boot in QEMU (SD card path)"
 		@echo "  make size             Section sizes for both"
+		@echo "  make debug            Generate debug artifacts (disasm, symbols, maps, etc.)"
+		@echo "  make clean-debug      Remove debug directory"
 		@echo "  make clean            Remove all build artefacts"
 		@echo ""
 		@echo "External kernel options:"
