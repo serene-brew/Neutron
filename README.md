@@ -2,7 +2,7 @@
 <img width="500" height="500" alt="Neutron_Logo_for_Github" src="https://github.com/user-attachments/assets/8b634af5-5973-4994-9cdc-d485141269e3" />
 
 ### A Piece of Project atom
-### v1.2.0
+### v1.3.0
 </div>
 
 ---
@@ -27,7 +27,7 @@ Neutron is a minimal yet functional bootloader that:
 - Initializes the SD card and mounts the first FAT32 partition
 - Loads a packed kernel image (**ATOM.BIN**) from the SD card into a staging area at **0x100000**
 - Validates the NKRN header (magic, CRC32), copies the payload to the load address (**0x200000**), and fills a `boot_info_t` at **0x1000**
-- Jumps to the kernel entry point with `x0` = pointer to `boot_info_t`
+- Jumps to the kernel entry point with `x0` = pointer to `boot_info_t` and `x1` = DTB address
 - Provides debug output throughout execution
 
 Designed for educational purposes, QEMU simulation (`-machine raspi3b`), and deployment on Raspberry Pi Zero 2W (or Pi 3B) with an SD card.
@@ -75,11 +75,13 @@ aarch64-none-elf-gcc --version
 ### Building
 
 ```bash
-make clean
-make all        # build bootloader + kernel (+ sd.img unless embed-kernel = true)
-make bootloader # compile only kernel8.img
-make kernel     # compile only atom.bin (raw kernel + NKRN pack)
-make sd-image   # create sd.img (FAT32; kernel filename from build.cfg)
+make clean              # remove build artifacts
+make all                # build bootloader + kernel (+ sd.img unless embed-kernel = true)
+make bootloader         # compile only kernel8.img
+make kernel             # compile only atom.bin (raw kernel + NKRN pack)
+make sd-image           # create sd.img (FAT32; kernel filename from build.cfg)
+make debug              # generate debug artifacts (disasm, symbols, maps, etc.) with -O0 -g -DDEBUG
+make clean-debug        # remove debug directory
 ```
 
 Build behaviour depends on **`build.cfg`**: the kernel filename (e.g. `ATOM.BIN` or `CUSTOM.BIN`) and **`embed-kernel`** (if `true`, the kernel is embedded in `kernel8.img` and no SD image is built by default). This generates:
@@ -134,7 +136,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation. For build-tim
 |-----------|------|
 | **boot/start.S** | CPU init, exception level drop (EL2→EL1), park secondaries, BSS zero, call `neutron_main` |
 | **neutron/main.c** | UART init, banner, mailbox (board rev / ARM mem), SD init, FAT32 mount, load ATOM.BIN, validate NKRN, `bl_load_kernel`, `bl_boot_kernel` |
-| **neutron/bootloader.c** | NKRN validation, CRC32 check, copy payload to load address, fill `boot_info_t` at 0x1000, `bl_boot_kernel` (jump with x0 = boot_info) |
+| **neutron/bootloader.c** | NKRN validation, CRC32 check, copy payload to load address, fill `boot_info_t` at 0x1000, `bl_boot_kernel` (jump with x0 = boot_info, x1 = dtb_addr) |
 | **driver/uart.c** | PL011 UART at 0x3F201000 (GPIO 14/15 ALT0), 115200 8N1 |
 | **driver/gpio.c** | BCM2837 GPIO (function select, pull-up/down) |
 | **driver/mbox.c** | VideoCore mailbox (board revision, ARM memory size) |

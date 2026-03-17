@@ -71,11 +71,13 @@ int bl_load_kernel(uintptr_t src, boot_info_t *out_info);
 
 /*
  * bl_boot_kernel()
- *   Jump to entry_addr with boot_info_t * in x0.
+ *   Jump to entry_addr with boot_info_t * in x0 and DTB address in x1.
+ *   Custom ABI for custom kernels: x0 = boot_info_t*, x1 = DTB address.
  *   Does NOT return.
  */
 void __attribute__((noreturn)) bl_boot_kernel(uintptr_t entry_addr,
-                                              boot_info_t *info);
+                                              boot_info_t *info,
+                                              uintptr_t dtb_addr);
 
 /* CRC32 helper (IEEE 802.3 polynomial) */
 uint32_t crc32(const uint8_t *data, size_t len);

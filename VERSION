@@ -1,4 +1,6 @@
-VERSION: v1.2.0
+VERSION: v1.3.0
+AUTHOR: SERENE BREW
+SOURCE: https://github.com/serene-brew/Neutron.git
 TOOL: NEUTRON
 AUTHOR: SERENE BREW
 LICENSE: BSD-3-CLAUSE

@@ -134,14 +134,14 @@ graph TD
   - `main.c` — Entry point `neutron_main()`: UART init + banner, mailbox (board revision, ARM memory), board identification, then either:
     - **SD/FAT32 path** (`embed-kernel = false`): SD init, FAT32 mount, read `CFG_KERNEL_FILENAME` into staging (`CFG_KERNEL_STAGING_ADDR`), validate NKRN, `bl_load_kernel()`
     - **Embedded path** (`embed-kernel = true`): use the linked-in packed kernel image, validate NKRN, `bl_load_kernel()`
-    - then fill mailbox fields in `boot_info_t`, countdown, `bl_boot_kernel(entry, &boot_info)`
-  - `bootloader.c` — `bl_load_kernel(src, out_info)`: validate NKRN magic, version, size, CRC32 of payload; copy payload to header.load_addr; write `boot_info_t` at BOOT_INFO_ADDR (0x1000); `bl_boot_kernel(entry_addr, info)`: dsb/isb, call kernel with x0 = info
+    - then fill mailbox fields in `boot_info_t`, countdown, `bl_boot_kernel(uintptr_t entry, boot_info_t *info, uintptr_t dtb_addr)`
+  - `bootloader.c` — `bl_load_kernel(src, out_info)`: validate NKRN magic, version, size, CRC32 of payload; copy payload to header.load_addr; write `boot_info_t` at BOOT_INFO_ADDR (0x1000) and dtb_addr at x1 reg; `bl_boot_kernel(uintptr_t entry, boot_info_t *info, uintptr_t dtb_addr)`: dsb/isb, call kernel with x0 = info, x1 = dtb_addr
 - **Key Responsibilities**:
   1. Bring up UART and print system/boot info
   2. Get board and memory info via mailbox
   3. Initialise SD card and mount first FAT32 partition
   4. Load packed kernel into staging (or use embedded image), validate NKRN, copy payload to load address (0x200000), fill boot_info at 0x1000
-  5. Jump to kernel entry with x0 = pointer to boot_info_t
+  5. Jump to kernel entry with x0 = pointer to boot_info_t and x1 = DTB address
 
 ---
 
@@ -174,7 +174,7 @@ flowchart TD
     READ_SD --> VALIDATE{NKRN valid?}
     VALIDATE -->|No| HALT([Halt])
     VALIDATE -->|Yes| LOAD["neutron/bootloader.c<br/>- bl_load_kernel<br/>- CRC32, copy to 0x200000<br/>- Fill boot_info at 0x1000"]
-    LOAD --> JUMP["bl_boot_kernel<br/>- x0 = boot_info*<br/>- Jump to 0x200000"]
+    LOAD --> JUMP["bl_boot_kernel<br/>- x0 = boot_info*<br/>- x1 = dtb_addr<br/>- Jump to 0x200000"]
     JUMP --> KERNEL["test_kernel<br/>- kernel_start.S → kernel_main<br/>- Print boot_info, heartbeat"]
     KERNEL --> RUN([Kernel running])
 ```
@@ -241,7 +241,7 @@ graph LR
 - **0x00000000 – 0x3EFFFFFF**: RAM (1 GiB on raspi3b)
 - **0x80000**: Bootloader load address (`kernel8.img`). Stack grows downward from here.
 - **0x100000**: Kernel staging (SD path). The file named by `kernel_filename` is read from SD into this region; bootloader parses the NKRN header here and copies payload to the load address.
-- **0x200000**: Kernel load and entry address. The NKRN payload is copied here; bootloader jumps to this address with x0 = boot_info*.
+- **0x200000**: Kernel load and entry address. The NKRN payload is copied here; bootloader jumps to this address with x0 = boot_info* and x1 = dtb_addr.
 - **0x1000**: `boot_info_t` structure filled by the bootloader (magic, board_revision, arm_mem_size, kernel_load_addr, kernel_entry_addr, kernel_size, bootloader_version string).
 - **0x3F000000**: BCM2837 peripheral base (MMIO).
 - **0x3F200000**: GPIO.
@@ -279,7 +279,7 @@ graph LR
 |-----------|----------|-----------------|
 | **CPU / EL** | `boot/start.S` | Park secondaries, EL2→EL1, MMU/cache off, stack, BSS, call neutron_main |
 | **Bootloader entry** | `neutron/main.c` | UART, banner, mailbox, then either embedded-kernel path or SD+FAT32 load of `kernel_filename`, NKRN check, bl_load_kernel, bl_boot_kernel |
-| **Kernel load** | `neutron/bootloader.c` | NKRN validation, CRC32, copy payload to load_addr, fill boot_info at 0x1000, jump with x0 = boot_info |
+| **Kernel load** | `neutron/bootloader.c` | NKRN validation, CRC32, copy payload to load_addr, fill boot_info at 0x1000, jump with x0 = boot_info and x1=dtb_addr |
 | **UART** | `driver/uart.c` | PL011 at 0x3F201000, GPIO 14/15 ALT0, 115200 8N1 |
 | **GPIO** | `driver/gpio.c` | Function select, pull-up/down for UART pins |
 | **Mailbox** | `driver/mbox.c` | Board revision, ARM memory size |

@@ -188,7 +188,7 @@ int bl_load_kernel(uintptr_t src, boot_info_t *out_info) {
   uart_printf("[BL] Kernel version : %s\n", info->kernel_version);
 
   if (out_info)
-    bl_memcpy(out_info, info, sizeof(*info));
+    *out_info = *info;  // Copy to output if caller wants a reference copy
 
   return BL_OK;
 }
@@ -196,20 +196,29 @@ int bl_load_kernel(uintptr_t src, boot_info_t *out_info) {
 /* ----------------------------------------------------------------
  * bl_boot_kernel()
  *   Flush caches (ISB/DSB), then jump.
- *   Convention: x0 = pointer to boot_info_t
+ *   Convention: x0 = boot_info_t*, x1 = DTB address
  * ---------------------------------------------------------------- */
 void __attribute__((noreturn)) bl_boot_kernel(uintptr_t entry_addr,
-                                              boot_info_t *info) {
+                                              boot_info_t *info,
+                                              uintptr_t dtb_addr) {
   uart_printf("[BL] Jumping to kernel at %p\n", (void *)entry_addr);
+  uart_printf("[BL] boot_info at x0: %p\n", (void *)info);
+  uart_printf("[BL] DTB address in x1: %p\n", (void *)dtb_addr);
 
   /* Ensure all writes are visible before the jump */
   __asm__ volatile("dsb sy\n"
                    "isb\n" ::
                        : "memory");
 
-  /* Call kernel: x0 = boot_info_t * */
-  void (*kernel_entry)(boot_info_t *) = (void (*)(boot_info_t *))entry_addr;
-  kernel_entry(info);
+  /* Call kernel with custom ABI: x0 = boot_info_t*, x1 = DTB address */
+  __asm__ volatile(
+    "mov x0, %0\n"        // x0 = boot_info_t*
+    "mov x1, %1\n"       // x1 = DTB address
+    "br %2\n"            // branch to kernel entry
+    :
+    : "r"(info), "r"(dtb_addr), "r"(entry_addr)
+    : "x0", "x1", "memory"
+  );
 
   /* Should never reach here */
   while (1)

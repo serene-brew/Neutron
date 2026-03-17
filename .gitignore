@@ -1,0 +1,10 @@
+# Ignore all generated artifacts including compiled binaries, build intermediates,
+# debug outputs (disassembly, symbols, ELF analysis), and generated documentation.
+
+# NOTE: the artifacts are provided in their respective release tags, checkout 
+#       https://github.com/serene-brew/Neutron/releases to download them.
+
+bin/
+docs/
+build/
+debug/

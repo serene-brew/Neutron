@@ -69,11 +69,13 @@ static uint64_t read_mpidr(void) {
 
 /* ----------------------------------------------------------------
  * neutron_main()  -  called from start.S
+ *   Receives DTB address from ARM firmware (passed via x0)
  * ---------------------------------------------------------------- */
-void neutron_main(void) {
+void neutron_main(uintptr_t dtb_addr) {
   /* ----- Hardware init ----- */
   uart_init();
   print_banner();
+  uart_printf("[BL] DTB address: %p\n", (void *)dtb_addr);
 
   /* ----- CPU state ----- */
   uint32_t el = read_exception_level();
@@ -176,8 +178,7 @@ void neutron_main(void) {
   /* ----- Run bootloader validation + copy ----- */
   uart_puts("\n[BL] Validating and loading kernel image...\n");
 
-  boot_info_t boot_info;
-  rc = bl_load_kernel(nkrn_src, &boot_info);
+  rc = bl_load_kernel(nkrn_src, NULL);
 
   if (rc != BL_OK) {
     uart_printf(CFG_ANSI_RED
@@ -188,21 +189,24 @@ void neutron_main(void) {
       __asm__ volatile("wfe");
   }
 
+  /* Get boot_info from well-known address 0x1000 */
+  boot_info_t *boot_info = (boot_info_t *)(uintptr_t)BOOT_INFO_ADDR;
+
   /* Fill in mailbox-obtained fields */
-  boot_info.board_revision = board_rev;
-  boot_info.arm_mem_size = arm_mem;
+  boot_info->board_revision = board_rev;
+  boot_info->arm_mem_size = arm_mem;
 
   /* ----- Boot countdown ----- */
   uart_puts("\n[BL] Kernel loaded successfully.\n");
   uart_printf("[BL] Entry point : %p\n",
-              (void *)(uintptr_t)boot_info.kernel_entry_addr);
+              (void *)(uintptr_t)boot_info->kernel_entry_addr);
 
   for (int i = 3; i > 0; i--) {
     for (volatile uint32_t d = 0; d < 2000000U; d++)
       __asm__ volatile("nop");
   }
 
-  bl_boot_kernel((uintptr_t)boot_info.kernel_entry_addr, &boot_info);
+  bl_boot_kernel((uintptr_t)boot_info->kernel_entry_addr, boot_info, dtb_addr);
 
   __builtin_unreachable();
 }

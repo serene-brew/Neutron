@@ -2,6 +2,11 @@
 # =============================================================================
 # Neutron Bootloader - Project Atom
 # neutron  - Linux/macOS build & run orchestration
+#
+# Organization : serene brew
+# Author       : mintRaven-05
+# License      : BSD-3-Clause
+#
 # =============================================================================
 
 set -e
@@ -212,7 +217,7 @@ neutron_build() {
   MakeArgs=("${ParsedArgs[@]:1}")
 
   case "$Target" in
-  all | bootloader | kernel | sd-image | clean | size) ;;
+  all | bootloader | kernel | sd-image | clean | size | debug | clean-debug) ;;
   *)
     echo "Invalid build target: '$Target'"
     echo
@@ -222,7 +227,9 @@ neutron_build() {
     echo "  kernel"
     echo "  sd-image"
     echo "  clean"
+    echo "  clean-debug"
     echo "  size"
+    echo "  debug"
     exit 1
     ;;
   esac
@@ -387,8 +394,10 @@ show_help() {
   echo "    bootloader            Build kernel8.img only"
   echo "    kernel                Build packed test kernel (outputs bin/atom.bin)"
   echo "    sd-image              Create sd.img only"
-  echo "    clean                 Remove build artifacts"
+  echo "    clean                 Remove build and debug artifacts"
+  echo "    clean-debug           Remove only debug artifacts"
   echo "    size                  Show section sizes"
+  echo "    debug                 Generate debug artifacts (disasm, symbols, maps, etc.)"
   echo
   echo "  Options:"
   echo "    --kernel <path>       Use a prebuilt packed NKRN kernel (skips test_kernel build)"
