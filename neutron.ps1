@@ -203,13 +203,14 @@ try {
         }
         
         switch ($Target) {
-            "all"        { }
-            "bootloader" { }
-            "kernel"     { }
-            "sd-image"   { }
-            "clean"      { }
-            "size"       { }
-            "debug"      { }
+            "all"         { }
+            "bootloader"  { }
+            "kernel"      { }
+            "sd-image"    { }
+            "clean"       { }
+            "clean-debug" { }
+            "size"        { }
+            "debug"       { }
             
             default {
                 Write-Error "Invalid build target: '$Target'"
@@ -220,6 +221,7 @@ try {
                 Write-Host "  kernel"
                 Write-Host "  sd-image"
                 Write-Host "  clean"
+                Write-Host "  clean-debug"
                 Write-Host "  size"
                 Write-Host "  debug"
                 exit 1
@@ -401,7 +403,8 @@ try {
         Write-Host "    bootloader        Build kernel8.img only"
         Write-Host "    kernel            Build packed test kernel (outputs bin/atom.bin)"
         Write-Host "    sd-image          Create sd.img only"
-        Write-Host "    clean             Remove build artifacts"
+        Write-Host "    clean             Remove build and debug artifacts"
+        Write-Host "    clean-debug       Remove debug artifacts"
         Write-Host "    size              Show section sizes"
         Write-Host "    debug             Generate debug artifacts (disasm, symbols, maps, etc.)"
         Write-Host ""
