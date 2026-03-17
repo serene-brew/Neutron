@@ -61,6 +61,10 @@ _from_el2:
  * _el1_entry  -  running at EL1, finish CPU init
  * ---------------------------------------------------------------- */
 _el1_entry:
+    /* ---- Save DTB address (passed by ARM firmware in x0) ---- */
+    /* Use callee-saved register x19 to preserve DTB across bl call */
+    mov     x19, x0
+
     /* ---- Disable MMU / caches at EL1 (safe defaults) ---- */
     mrs     x0, sctlr_el1
     bic     x0, x0, #(1 << 0)     // M   = 0  disable MMU
@@ -83,6 +87,9 @@ _bss_loop:
     cmp     x0, x1
     blt     _bss_loop
 _bss_done:
+
+    /* ---- Pass DTB address to neutron_main in x0 ---- */
+    mov     x0, x19
 
     /* ---- Jump to C bootloader entry ---- */
     bl      neutron_main
