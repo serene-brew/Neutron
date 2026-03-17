@@ -504,6 +504,7 @@ clean-debug:
 clean:
 	@rm -rf $(BUILD_DIR)/*
 	@rm -rf $(BIN_DIR)/*
+	@rm -rf debug/*
 	@echo "Clean done."
 
 # ----------------------------------------------------------------
