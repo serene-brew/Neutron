@@ -5,6 +5,7 @@
 # 
 # Organization : serene brew
 # Author       : TriDEntApollO
+# Co-Author    : mintRaven-05
 # License      : BSD-3-Clause
 #
 # ================================================================
@@ -208,6 +209,7 @@ try {
             "sd-image"   { }
             "clean"      { }
             "size"       { }
+            "debug"      { }
             
             default {
                 Write-Error "Invalid build target: '$Target'"
@@ -219,6 +221,7 @@ try {
                 Write-Host "  sd-image"
                 Write-Host "  clean"
                 Write-Host "  size"
+                Write-Host "  debug"
                 exit 1
             }
         }
@@ -400,6 +403,7 @@ try {
         Write-Host "    sd-image          Create sd.img only"
         Write-Host "    clean             Remove build artifacts"
         Write-Host "    size              Show section sizes"
+        Write-Host "    debug             Generate debug artifacts (disasm, symbols, maps, etc.)"
         Write-Host ""
         Write-Host "  Options:"
         Write-Host "    --kernel <path>          Use a prebuilt packed NKRN kernel (skips test_kernel build)"
