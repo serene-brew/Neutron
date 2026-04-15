@@ -20,6 +20,9 @@
  * All four cores start here; park cores 1-3 immediately.
  * ---------------------------------------------------------------- */
 _start:
+    /* Preserve firmware-provided DTB pointer before clobbering x0. */
+    mov     x19, x0
+
     /* ---- 1. Park secondary cores ---- */
     mrs     x0, mpidr_el1
     and     x0, x0, #0xFF          // core ID in bits [7:0]
@@ -61,10 +64,6 @@ _from_el2:
  * _el1_entry  -  running at EL1, finish CPU init
  * ---------------------------------------------------------------- */
 _el1_entry:
-    /* ---- Save DTB address (passed by ARM firmware in x0) ---- */
-    /* Use callee-saved register x19 to preserve DTB across bl call */
-    mov     x19, x0
-
     /* ---- Disable MMU / caches at EL1 (safe defaults) ---- */
     mrs     x0, sctlr_el1
     bic     x0, x0, #(1 << 0)     // M   = 0  disable MMU
